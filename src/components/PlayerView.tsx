@@ -7,7 +7,7 @@ import {
   Rows2,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AppData, PageViewMode, PlayerSession } from "../data/types";
 import { getFileFromHandle } from "../data/storage";
 import { pdfjs } from "../pdf/pdfSetup";
@@ -34,6 +34,7 @@ export function PlayerView({
   const [pdfDocument, setPdfDocument] = useState<any>(null);
   const [pageCount, setPageCount] = useState(0);
   const [loadError, setLoadError] = useState("");
+  const isExitingRef = useRef(false);
 
   const currentSongId = session.songIds[session.currentSongIndex];
   const currentSong = data.songs.find((song) => song.id === currentSongId);
@@ -167,12 +168,27 @@ export function PlayerView({
     }
   }, [onChangeSession, session, step]);
 
+  const closePlayer = useCallback(() => {
+    if (isExitingRef.current) return;
+    isExitingRef.current = true;
+    onExit();
+  }, [onExit]);
+
   const exitPlayer = useCallback(() => {
     if (document.fullscreenElement) {
       document.exitFullscreen?.().catch(() => undefined);
     }
-    onExit();
-  }, [onExit]);
+    closePlayer();
+  }, [closePlayer]);
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      if (!document.fullscreenElement) closePlayer();
+    };
+
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
+  }, [closePlayer]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {

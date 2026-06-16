@@ -5,9 +5,11 @@ import { PlayerView } from "./components/PlayerView";
 import { PlaylistsView } from "./components/PlaylistsView";
 import {
   deleteFileHandle,
+  getPermittedFileHandle,
   isFileSystemAccessSupported,
   loadAppData,
   pickPdfHandle,
+  preloadFileHandles,
   putFileHandle,
   saveAppData,
   uid,
@@ -44,6 +46,10 @@ export default function App() {
   useEffect(() => {
     saveAppData(data);
   }, [data]);
+
+  useEffect(() => {
+    preloadFileHandles(data.songs.map((song) => song.handleKey));
+  }, [data.songs]);
 
   const playlistSongIds = useMemo(() => {
     const map = new Map<string, string[]>();
@@ -131,7 +137,17 @@ export default function App() {
       setStatus("Pro otevirani PDF bez kopirovani pouzij Microsoft Edge nebo Google Chrome.");
       return;
     }
-    setPlayerSession({ songIds: [songId], currentSongIndex: 0, pageNumber: 1 });
+
+    const song = data.songs.find((candidate) => candidate.id === songId);
+    if (!song) return;
+
+    try {
+      await getPermittedFileHandle(song.handleKey);
+      setStatus("");
+      setPlayerSession({ songIds: [songId], currentSongIndex: 0, pageNumber: 1 });
+    } catch (error) {
+      setStatus((error as Error).message);
+    }
   }
 
   function updateSong(songId: string, patch: Pick<Song, "title" | "author">) {
@@ -279,7 +295,7 @@ export default function App() {
     });
   }
 
-  function openPlaylist(playlistId: string) {
+  async function openPlaylist(playlistId: string) {
     if (!isFileSystemAccessSupported()) {
       setStatus("Pro otevirani PDF bez kopirovani pouzij Microsoft Edge nebo Google Chrome.");
       return;
@@ -289,7 +305,18 @@ export default function App() {
       data.songs.some((song) => song.id === songId),
     );
     if (!songIds?.length) return;
-    setPlayerSession({ songIds, currentSongIndex: 0, pageNumber: 1, playlistId });
+
+    try {
+      const songsById = new Map(data.songs.map((song) => [song.id, song]));
+      for (const songId of songIds) {
+        const song = songsById.get(songId);
+        if (song) await getPermittedFileHandle(song.handleKey);
+      }
+      setStatus("");
+      setPlayerSession({ songIds, currentSongIndex: 0, pageNumber: 1, playlistId });
+    } catch (error) {
+      setStatus((error as Error).message);
+    }
   }
 
   function setViewMode(mode: PageViewMode) {

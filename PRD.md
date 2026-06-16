@@ -271,3 +271,41 @@ Uprava potvrzuje, ze v detailu playlistu musi byt jasna moznost menit poradi skl
 - Prvni skladbu nelze posunout vyse a posledni skladbu nelze posunout nize.
 - Po zmene poradi se playlist otevre a hraje ve stejnem poradi, ktere uzivatel vidi v detailu playlistu.
 - Po odebrani skladby zustane poradi zbyvajicich skladeb souvisle.
+
+## 14. Oprava: Escape z PDF prohlizece
+
+### Cil
+
+Pri stisku Escape v otevrenem PDF se aplikace musi spolehlive vratit z rezimu hrani do hlavniho menu.
+
+### Rozsah
+
+- Escape zustava klavesou pro navrat do menu.
+- Pokud prohlizec Escape pouzije pouze k ukonceni nativniho fullscreen rezimu, aplikace to zachyti a zavre PDF prohlizec.
+- Ukonceni fullscreen rezimu nesmi vyvolat viditelnou chybu.
+
+### Akceptacni kriteria
+
+- Po otevreni PDF a stisku Escape se uzivatel vrati do menu.
+- Tisnuti tlacitka Menu v horni liste se chova stejne jako dosud.
+- Build aplikace projde bez TypeScript chyb.
+
+## 15. Oprava: povoleni k PDF pri otevreni
+
+### Cil
+
+Maestro si ma vyzadat povoleni k PDF souboru primo pri kliknuti na otevreni skladby nebo playlistu, aby prohlizec zadost neodmitl kvuli chybejici uzivatelske akci.
+
+### Rozsah
+
+- Aplikace nebude slibovat trvale systemove povoleni, protoze to Chrome/Edge webove aplikaci nedovoli nastavit natvrdo.
+- Pri otevreni skladby se overi a pripadne vyzada povoleni k danemu PDF pred vstupem do rezimu hrani.
+- Pri otevreni playlistu se overi a pripadne vyzada povoleni ke skladbam v playlistu pred vstupem do rezimu hrani.
+- Pokud uzivatel povoleni neudeli, aplikace zustane v menu a zobrazi srozumitelnou hlasku.
+
+### Akceptacni kriteria
+
+- Kliknuti na skladbu vyzada chybejici povoleni k PDF driv, nez se otevre PDF prohlizec.
+- Kliknuti na playlist vyzada chybejici povoleni k PDF souborum v playlistu driv, nez se otevre PDF prohlizec.
+- Pokud prohlizec povoleni odmita, uzivatel vidi praktickou hlasku a aplikace nespadne.
+- Build aplikace projde bez TypeScript chyb.

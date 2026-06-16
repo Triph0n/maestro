@@ -52,3 +52,31 @@ Zdroj: `PRD.md` a `TECHNICAL_DESIGN.md`
 - [x] Provest finalni overeni.
   - Acceptance: Akceptacni kriteria v PRD jsou splnena.
   - Verification: Spustit `npm run build`.
+
+## Oprava: Escape z PDF prohlizece
+
+- [x] Doplnit produktovy a technicky zapis k oprave Escape.
+  - Acceptance: `PRD.md` a `TECHNICAL_DESIGN.md` popisuji pozadovane chovani a technicky navrh.
+  - Verification: Dokumenty obsahuji cil, rozsah, navrh a overeni.
+
+- [x] Implementovat spolehlivy navrat z fullscreen PDF do menu.
+  - Acceptance: Escape i nativni ukonceni fullscreen rezimu zavrou `PlayerView` a vrati aplikaci do menu.
+  - Verification: Build projde a `PlayerView` posloucha `fullscreenchange`.
+
+- [x] Provest finalni overeni.
+  - Acceptance: Akceptacni kriteria v PRD jsou splnena.
+  - Verification: Spustit `npm run build`.
+
+## Oprava: povoleni k PDF pri otevreni
+
+- [x] Doplnit produktovy a technicky zapis k povoleni PDF.
+  - Acceptance: `PRD.md` a `TECHNICAL_DESIGN.md` popisuji omezeni prohlizece a pozadovane chovani.
+  - Verification: Dokumenty obsahuji cil, rozsah, navrh a overeni.
+
+- [x] Presunout vyzadani povoleni do kliknuti na otevreni skladby/playlistu.
+  - Acceptance: `openSong` a `openPlaylist` overi povoleni pred nastavenim `playerSession` a file handles se prednacitaji do pametove cache.
+  - Verification: Build projde a kod vola helper pro povoleni pred otevrenim prehravace.
+
+- [x] Provest finalni overeni.
+  - Acceptance: Akceptacni kriteria v PRD jsou splnena.
+  - Verification: Spustit `npm run build`.

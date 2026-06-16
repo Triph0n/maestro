@@ -215,3 +215,48 @@ Playlist je ulozeny jako `playlistItems`, kde kazda polozka obsahuje `playlistId
 
 - TypeScript build musi projit.
 - Manualne overit, ze zmena poradi meni vizualni seznam i poradi predane do prehravace.
+
+## 13. Oprava: Escape z PDF prohlizece
+
+### Kontext
+
+`PlayerView` vstupuje po otevreni skladby do nativniho fullscreen rezimu pres Fullscreen API. V nekterych prohlizecich se Escape zpracuje primarne jako ukonceni fullscreen rezimu a aplikacni `keydown` handler nemusi byt spolehlivy zdroj navratu do menu.
+
+### Navrh
+
+- Zachovat existujici `keydown` obsluhu pro Escape.
+- Pridat obsluhu `fullscreenchange`, ktera pri opusteni fullscreen rezimu zavola stejnou logiku navratu do menu.
+- Zajistit idempotentni navrat, aby soubezny Escape, toolbar a `fullscreenchange` nezpusobily duplicitni stavove zmeny.
+
+### Dotcene soubory
+
+- `src/components/PlayerView.tsx`
+
+### Overeni
+
+- TypeScript build musi projit.
+- Manualne overit v prohlizeci, ze Escape po otevreni PDF vrati aplikaci do menu.
+
+## 14. Oprava: povoleni k PDF pri otevreni
+
+### Kontext
+
+File System Access API vyzaduje uzivatelskou aktivaci pro `requestPermission`. Pokud se povoleni vyzada az v `PlayerView` efektu po zmene React stavu, prohlizec muze zadost odmitnout, i kdyz uzivatel predtim klikl na otevreni skladby.
+
+### Navrh
+
+- Exportovat helper, ktery podle `handleKey` nacte file handle a overi nebo vyzada read permission.
+- Po nacteni metadat skladby prednacist file handles z IndexedDB do pametove cache, aby samotne kliknuti nemuselo cekat na IndexedDB pred `requestPermission`.
+- Volat tento helper primo v `openSong` pred nastavenim `playerSession`.
+- Pri `openPlaylist` projit skladby v playlistu a vyzadat povoleni pred nastavenim `playerSession`, aby dalsi skladby nepadaly pri automatickem prechodu.
+- `PlayerView` si ponecha kontrolu povoleni pri samotnem nacteni PDF jako obrannou vrstvu.
+
+### Dotcene soubory
+
+- `src/data/storage.ts`
+- `src/App.tsx`
+
+### Overeni
+
+- TypeScript build musi projit.
+- Manualne overit, ze otevreni skladby/playlistu vyzaduje povoleni pred PDF prohlizecem a pri odmitnuti zustane v menu.

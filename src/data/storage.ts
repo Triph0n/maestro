@@ -5,6 +5,7 @@ const DB_NAME = "maestro-pdf-store";
 const DB_VERSION = 2;
 const HANDLE_STORE = "fileHandles";
 const LEGACY_PDF_STORE = "pdfs";
+const fileHandleCache = new Map<string, FileSystemFileHandle>();
 
 export const emptyAppData = (): AppData => ({
   songs: [],
@@ -81,9 +82,13 @@ export async function putFileHandle(handleKey: string, handle: FileSystemFileHan
   });
 
   db.close();
+  fileHandleCache.set(handleKey, handle);
 }
 
 export async function getFileHandle(handleKey: string): Promise<FileSystemFileHandle | null> {
+  const cachedHandle = fileHandleCache.get(handleKey);
+  if (cachedHandle) return cachedHandle;
+
   const db = await openDb();
 
   const handle = await new Promise<FileSystemFileHandle | null>((resolve, reject) => {
@@ -94,7 +99,14 @@ export async function getFileHandle(handleKey: string): Promise<FileSystemFileHa
   });
 
   db.close();
+  if (handle) fileHandleCache.set(handleKey, handle);
   return handle;
+}
+
+export async function preloadFileHandles(handleKeys: string[]) {
+  await Promise.all(
+    handleKeys.map((handleKey) => getFileHandle(handleKey).catch(() => null)),
+  );
 }
 
 export async function deleteFileHandle(handleKey: string) {
@@ -108,6 +120,7 @@ export async function deleteFileHandle(handleKey: string) {
   });
 
   db.close();
+  fileHandleCache.delete(handleKey);
 }
 
 export async function verifyFilePermission(handle: FileSystemFileHandle) {
@@ -116,12 +129,23 @@ export async function verifyFilePermission(handle: FileSystemFileHandle) {
   return (await handle.requestPermission(options)) === "granted";
 }
 
-export async function getFileFromHandle(handleKey: string): Promise<File> {
+export async function getPermittedFileHandle(handleKey: string): Promise<FileSystemFileHandle> {
   const handle = await getFileHandle(handleKey);
   if (!handle) throw new Error("PDF neni propojene. Vyber soubor znovu.");
 
-  const permitted = await verifyFilePermission(handle);
+  let permitted = false;
+  try {
+    permitted = await verifyFilePermission(handle);
+  } catch {
+    throw new Error("Prohlizec odmitl vyzadat povoleni k PDF. Otevri skladbu kliknutim z menu a povol pristup k souboru.");
+  }
+
   if (!permitted) throw new Error("Prohlizec nema opravneni otevrit PDF.");
+  return handle;
+}
+
+export async function getFileFromHandle(handleKey: string): Promise<File> {
+  const handle = await getPermittedFileHandle(handleKey);
 
   return handle.getFile();
 }
