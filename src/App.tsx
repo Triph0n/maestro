@@ -8,6 +8,7 @@ import {
   getPermittedFileHandle,
   isFileSystemAccessSupported,
   loadAppData,
+  pickAudioHandle,
   pickPdfHandle,
   preloadFileHandles,
   putFileHandle,
@@ -48,7 +49,9 @@ export default function App() {
   }, [data]);
 
   useEffect(() => {
-    preloadFileHandles(data.songs.map((song) => song.handleKey));
+    preloadFileHandles(
+      data.songs.flatMap((song) => [song.handleKey, song.audioHandleKey].filter(Boolean) as string[]),
+    );
   }, [data.songs]);
 
   const playlistSongIds = useMemo(() => {
@@ -132,6 +135,41 @@ export default function App() {
     }
   }
 
+  async function attachAudio(songId: string) {
+    try {
+      const handle = await pickAudioHandle();
+      if (!handle) return;
+
+      const allowedExtensions = /\.(mp3|m4a|ogg|wav|flac)$/i;
+      if (!allowedExtensions.test(handle.name)) {
+        setStatus("Vybrany soubor neni podporovany audio doprovod.");
+        return;
+      }
+
+      const song = data.songs.find((candidate) => candidate.id === songId);
+      const audioHandleKey = song?.audioHandleKey || `audio-handle-${songId}`;
+      await putFileHandle(audioHandleKey, handle);
+
+      setData((current) => ({
+        ...current,
+        songs: current.songs.map((candidate) =>
+          candidate.id === songId
+            ? {
+                ...candidate,
+                audioFileName: handle.name,
+                audioHandleKey,
+                updatedAt: now(),
+              }
+            : candidate,
+        ),
+      }));
+      setStatus("Doprovod propojen. Audio soubor zustava v pocitaci.");
+    } catch (error) {
+      if ((error as Error).name === "AbortError") return;
+      setStatus((error as Error).message);
+    }
+  }
+
   async function openSong(songId: string) {
     if (!isFileSystemAccessSupported()) {
       setStatus("Pro otevirani PDF bez kopirovani pouzij Microsoft Edge nebo Google Chrome.");
@@ -143,25 +181,28 @@ export default function App() {
 
     try {
       await getPermittedFileHandle(song.handleKey);
-      setStatus("");
+      let audioWarning = "";
+      if (song.audioHandleKey) {
+        try {
+          await getPermittedFileHandle(song.audioHandleKey, "audio doprovod");
+        } catch (error) {
+          audioWarning = (error as Error).message;
+        }
+      }
+
+      setStatus(audioWarning);
       setPlayerSession({ songIds: [songId], currentSongIndex: 0, pageNumber: 1 });
     } catch (error) {
       setStatus((error as Error).message);
     }
   }
 
-  function updateSong(songId: string, patch: Pick<Song, "title" | "author">) {
-    setData((current) => ({
-      ...current,
-      songs: current.songs.map((song) =>
-        song.id === songId ? { ...song, ...patch, updatedAt: now() } : song,
-      ),
-    }));
-  }
-
   async function deleteSong(songId: string) {
     const song = data.songs.find((candidate) => candidate.id === songId);
-    if (song) await deleteFileHandle(song.handleKey);
+    if (song) {
+      await deleteFileHandle(song.handleKey);
+      if (song.audioHandleKey) await deleteFileHandle(song.audioHandleKey);
+    }
 
     setData((current) => ({
       ...current,
@@ -312,7 +353,18 @@ export default function App() {
         const song = songsById.get(songId);
         if (song) await getPermittedFileHandle(song.handleKey);
       }
-      setStatus("");
+      let audioWarning = "";
+      for (const songId of songIds) {
+        const song = songsById.get(songId);
+        if (!song?.audioHandleKey) continue;
+        try {
+          await getPermittedFileHandle(song.audioHandleKey, "audio doprovod");
+        } catch (error) {
+          audioWarning = (error as Error).message;
+        }
+      }
+
+      setStatus(audioWarning);
       setPlayerSession({ songIds, currentSongIndex: 0, pageNumber: 1, playlistId });
     } catch (error) {
       setStatus((error as Error).message);
@@ -341,13 +393,18 @@ export default function App() {
     });
   }
 
+  function closePlayerToLibrary() {
+    setPlayerSession(null);
+    setView("library");
+  }
+
   if (playerSession) {
     return (
       <PlayerView
         data={data}
         session={playerSession}
         onChangeSession={setPlayerSession}
-        onExit={() => setPlayerSession(null)}
+        onExit={closePlayerToLibrary}
         onSetViewMode={setViewMode}
         onRotatePage={rotatePage}
       />
@@ -383,7 +440,7 @@ export default function App() {
             onAddPdf={addPdf}
             onOpenSong={openSong}
             onReconnectPdf={reconnectPdf}
-            onUpdateSong={updateSong}
+            onAttachAudio={attachAudio}
             onDeleteSong={deleteSong}
             fileSystemAccessSupported={isFileSystemAccessSupported()}
           />

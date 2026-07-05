@@ -1,4 +1,4 @@
-import { FilePlus, Link, Music, Play, Trash2 } from "lucide-react";
+import { FilePlus, Headphones, Link, Music, Play, Trash2 } from "lucide-react";
 import type { Song } from "../data/types";
 
 type LibraryViewProps = {
@@ -6,7 +6,7 @@ type LibraryViewProps = {
   onAddPdf: () => void;
   onOpenSong: (songId: string) => void;
   onReconnectPdf: (songId: string) => void;
-  onUpdateSong: (songId: string, patch: Pick<Song, "title" | "author">) => void;
+  onAttachAudio: (songId: string) => void;
   onDeleteSong: (songId: string) => void;
   fileSystemAccessSupported: boolean;
 };
@@ -16,7 +16,7 @@ export function LibraryView({
   onAddPdf,
   onOpenSong,
   onReconnectPdf,
-  onUpdateSong,
+  onAttachAudio,
   onDeleteSong,
   fileSystemAccessSupported,
 }: LibraryViewProps) {
@@ -50,27 +50,22 @@ export function LibraryView({
 
         {songs.map((song) => (
           <article className="song-row" key={song.id}>
-            <div className="song-edit">
-              <input
-                aria-label="Nazev skladby"
-                value={song.title}
-                onChange={(event) =>
-                  onUpdateSong(song.id, { title: event.target.value, author: song.author })
-                }
-              />
-              <input
-                aria-label="Autor"
-                placeholder="Autor"
-                value={song.author}
-                onChange={(event) =>
-                  onUpdateSong(song.id, { title: song.title, author: event.target.value })
-                }
-              />
-              <span>{song.fileName}</span>
+            <div className="song-summary">
+              <strong>{song.title}</strong>
+              <span>{song.author || song.fileName}</span>
+              {song.audioFileName ? <small>Doprovod: {song.audioFileName}</small> : null}
             </div>
             <div className="row-actions">
               <button className="icon-only primary" title="Otevrit" onClick={() => onOpenSong(song.id)}>
                 <Play size={20} />
+              </button>
+              <button
+                className={song.audioHandleKey ? "icon-only primary" : "icon-only"}
+                title={song.audioHandleKey ? "Vymenit doprovod" : "Pridat doprovod"}
+                onClick={() => onAttachAudio(song.id)}
+                disabled={!fileSystemAccessSupported}
+              >
+                <Headphones size={19} />
               </button>
               <button className="icon-only" title="Znovu propojit PDF" onClick={() => onReconnectPdf(song.id)}>
                 <Link size={19} />

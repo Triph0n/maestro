@@ -129,23 +129,31 @@ export async function verifyFilePermission(handle: FileSystemFileHandle) {
   return (await handle.requestPermission(options)) === "granted";
 }
 
-export async function getPermittedFileHandle(handleKey: string): Promise<FileSystemFileHandle> {
+export async function getPermittedFileHandle(handleKey: string, fileLabel = "PDF"): Promise<FileSystemFileHandle> {
   const handle = await getFileHandle(handleKey);
-  if (!handle) throw new Error("PDF neni propojene. Vyber soubor znovu.");
+  if (!handle) throw new Error(`${fileLabel} neni propojene. Vyber soubor znovu.`);
 
   let permitted = false;
   try {
     permitted = await verifyFilePermission(handle);
   } catch {
-    throw new Error("Prohlizec odmitl vyzadat povoleni k PDF. Otevri skladbu kliknutim z menu a povol pristup k souboru.");
+    throw new Error(
+      `Prohlizec odmitl vyzadat povoleni k souboru ${fileLabel}. Otevri skladbu kliknutim z menu a povol pristup k souboru.`,
+    );
   }
 
-  if (!permitted) throw new Error("Prohlizec nema opravneni otevrit PDF.");
+  if (!permitted) throw new Error(`Prohlizec nema opravneni otevrit ${fileLabel}.`);
   return handle;
 }
 
-export async function getFileFromHandle(handleKey: string): Promise<File> {
-  const handle = await getPermittedFileHandle(handleKey);
+export async function getFileFromHandle(handleKey: string, fileLabel = "PDF"): Promise<File> {
+  const handle = await getFileHandle(handleKey);
+  if (!handle) throw new Error(`${fileLabel} neni propojene. Vyber soubor znovu.`);
+
+  const options: FileSystemHandlePermissionDescriptor = { mode: "read" };
+  if ((await handle.queryPermission(options)) !== "granted") {
+    throw new Error(`Maestro nema opravneni otevrit ${fileLabel}. Vrat se do menu a otevri skladbu znovu.`);
+  }
 
   return handle.getFile();
 }
@@ -162,6 +170,30 @@ export async function pickPdfHandle(): Promise<FileSystemFileHandle | null> {
         description: "PDF noty",
         accept: {
           "application/pdf": [".pdf"],
+        },
+      },
+    ],
+  });
+
+  return handle ?? null;
+}
+
+export async function pickAudioHandle(): Promise<FileSystemFileHandle | null> {
+  if (!isFileSystemAccessSupported()) {
+    throw new Error("Vyber audio doprovodu vyzaduje Microsoft Edge nebo Google Chrome.");
+  }
+
+  const [handle] = await window.showOpenFilePicker({
+    multiple: false,
+    types: [
+      {
+        description: "Audio doprovod",
+        accept: {
+          "audio/mpeg": [".mp3"],
+          "audio/mp4": [".m4a"],
+          "audio/ogg": [".ogg"],
+          "audio/wav": [".wav"],
+          "audio/flac": [".flac"],
         },
       },
     ],

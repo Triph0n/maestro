@@ -255,14 +255,22 @@ button:disabled {
   grid-template-columns: minmax(0, 1fr) auto;
 }
 
-.song-edit {
+.song-summary {
   display: grid;
-  grid-template-columns: minmax(12rem, 1fr) minmax(10rem, 0.5fr) minmax(10rem, 0.7fr);
-  gap: 10px;
-  align-items: center;
+  min-width: 0;
+  gap: 3px;
 }
 
-.song-edit span,
+.song-summary strong {
+  overflow: hidden;
+  color: #102a46;
+  font-size: 17px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.song-summary span,
+.song-summary small,
 .setlist-row small {
   overflow: hidden;
   color: var(--muted-ink);
@@ -291,6 +299,7 @@ select:focus {
 
 .row-actions {
   display: flex;
+  flex-shrink: 0;
   gap: 8px;
 }
 
@@ -490,8 +499,7 @@ select:focus {
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1), 0 22px 50px rgba(0, 0, 0, 0.42);
 }
 
-.touch-zone,
-.top-touch-zone {
+.touch-zone {
   position: absolute;
   z-index: 4;
   border: 0;
@@ -508,78 +516,48 @@ select:focus {
   width: 42%;
 }
 
-.top-touch-zone {
-  top: 0;
-  left: 38%;
-  width: 24%;
-  height: 90px;
-}
-
-.player-toolbar {
+.player-control-column {
   position: absolute;
   top: 16px;
-  left: 50%;
-  z-index: 8;
+  right: 16px;
+  z-index: 9;
   display: flex;
-  max-width: calc(100% - 32px);
-  align-items: center;
+  width: 64px;
+  flex-direction: column;
   gap: 10px;
+  border-color: rgba(197, 160, 89, 0.78);
   border: 1px solid rgba(197, 160, 89, 0.7);
   border-radius: 6px;
-  padding: 10px;
+  padding: 8px;
   background: rgba(42, 21, 8, 0.94);
   color: var(--parchment-light);
   box-shadow: 0 18px 45px rgba(0, 0, 0, 0.5);
-  opacity: 0;
-  pointer-events: none;
-  transform: translate(-50%, -12px);
-  transition: none;
-}
-
-.player-toolbar.visible {
-  opacity: 1;
   pointer-events: auto;
-  transform: translate(-50%, 0);
 }
 
-.player-title {
-  display: grid;
-  min-width: 18rem;
-  max-width: 36rem;
+.player-control-column audio {
+  display: none;
 }
 
-.player-title strong,
-.player-title span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.player-control-column .icon-only,
+.player-menu-button {
+  width: 46px;
+  height: 46px;
+  min-height: 46px;
+  border-color: rgba(197, 160, 89, 0.46);
+  background: rgba(253, 251, 247, 0.08);
+  color: var(--parchment-light);
 }
 
-.player-title strong {
-  color: var(--gold);
-  font-family: Georgia, "Times New Roman", serif;
-  font-size: 18px;
-}
-
-.player-title span {
-  color: rgba(246, 235, 212, 0.76);
-  font-size: 13px;
-}
-
-.toolbar-hint {
-  position: absolute;
-  top: 14px;
-  left: 50%;
-  z-index: 5;
-  display: grid;
-  width: 42px;
-  height: 30px;
-  place-items: center;
-  border: 1px solid rgba(197, 160, 89, 0.3);
-  border-radius: 999px;
-  background: rgba(42, 21, 8, 0.52);
-  color: rgba(246, 235, 212, 0.74);
-  transform: translateX(-50%);
+.player-menu-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(197, 160, 89, 0.66);
+  border-radius: 6px;
+  padding: 0;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .player-message,
@@ -603,11 +581,4 @@ select:focus {
     inset: 8px;
   }
 
-  .song-edit {
-    grid-template-columns: minmax(10rem, 1fr) minmax(8rem, 0.55fr);
-  }
-
-  .song-edit span {
-    display: none;
-  }
 }

@@ -260,3 +260,26 @@ File System Access API vyzaduje uzivatelskou aktivaci pro `requestPermission`. P
 
 - TypeScript build musi projit.
 - Manualne overit, ze otevreni skladby/playlistu vyzaduje povoleni pred PDF prohlizecem a pri odmitnuti zustane v menu.
+
+## 15. Oprava: fullscreen jen z uzivatelske akce
+
+### Kontext
+
+Prohlizec odmita `requestFullscreen`, pokud neni spusteny primo z uzivatelske akce. Automaticke volani z React efektu v `PlayerView` proto muze pri opakovanem otevreni PDF vyhodit chybu `API can only be initiated by a user gesture`.
+
+### Navrh
+
+- Odstranit automaticke volani `requestFullscreen` z mount efektu `PlayerView`.
+- Ponechat prehravac jako celoobrazovkovou aplikacni obrazovku pres CSS.
+- Pridat tlacitko v liste prehravace, ktere spusti nativni fullscreen primo z kliknuti uzivatele.
+- Nacitani PDF v `PlayerView` nesmi samo vyvolavat `requestPermission`; pokud opravneni chybi, zobrazi chybu a uzivatel otevira skladbu z menu.
+
+### Dotcene soubory
+
+- `src/components/PlayerView.tsx`
+- `src/data/storage.ts`
+
+### Overeni
+
+- TypeScript build musi projit.
+- Manualne overit, ze otevreni PDF uz nevola `requestFullscreen` z efektu a ze nativni fullscreen funguje z tlacitka v liste.

@@ -1,16 +1,19 @@
 import {
-  ArrowLeft,
   Columns2,
-  PanelTopOpen,
+  Maximize2,
+  Minimize2,
+  Pause,
+  Play,
   RotateCcw,
   RotateCw,
   Rows2,
-  X,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AppData, PageViewMode, PlayerSession } from "../data/types";
 import { getFileFromHandle } from "../data/storage";
-import { pdfjs } from "../pdf/pdfSetup";
+import { pdfjs, pdfjsWasmUrl } from "../pdf/pdfSetup";
 import { PdfCanvas } from "./PdfCanvas";
 
 type PlayerViewProps = {
@@ -30,11 +33,16 @@ export function PlayerView({
   onSetViewMode,
   onRotatePage,
 }: PlayerViewProps) {
-  const [toolbarVisible, setToolbarVisible] = useState(false);
   const [pdfDocument, setPdfDocument] = useState<any>(null);
   const [pageCount, setPageCount] = useState(0);
   const [loadError, setLoadError] = useState("");
+  const [audioUrl, setAudioUrl] = useState("");
+  const [audioError, setAudioError] = useState("");
+  const [audioPlaying, setAudioPlaying] = useState(false);
+  const [audioMuted, setAudioMuted] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(Boolean(document.fullscreenElement));
   const isExitingRef = useRef(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const currentSongId = session.songIds[session.currentSongIndex];
   const currentSong = data.songs.find((song) => song.id === currentSongId);
@@ -65,16 +73,6 @@ export function PlayerView({
   );
 
   useEffect(() => {
-    document.documentElement.requestFullscreen?.().catch(() => undefined);
-
-    return () => {
-      if (document.fullscreenElement) {
-        document.exitFullscreen?.().catch(() => undefined);
-      }
-    };
-  }, []);
-
-  useEffect(() => {
     let cancelled = false;
     setPdfDocument(null);
     setPageCount(0);
@@ -87,7 +85,7 @@ export function PlayerView({
         if (cancelled) return;
         const bytes = await file.arrayBuffer();
         if (cancelled) return;
-        const loadingTask = pdfjs.getDocument({ data: new Uint8Array(bytes) });
+        const loadingTask = pdfjs.getDocument({ data: new Uint8Array(bytes), wasmUrl: pdfjsWasmUrl });
         const doc = await loadingTask.promise;
         if (cancelled) return;
         setPdfDocument(doc);
@@ -103,6 +101,37 @@ export function PlayerView({
       cancelled = true;
     };
   }, [currentSong]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let objectUrl = "";
+    setAudioUrl("");
+    setAudioError("");
+    setAudioPlaying(false);
+
+    async function loadAudio() {
+      if (!currentSong?.audioHandleKey) return;
+
+      try {
+        const file = await getFileFromHandle(currentSong.audioHandleKey, "audio doprovod");
+        objectUrl = URL.createObjectURL(file);
+        if (cancelled) {
+          URL.revokeObjectURL(objectUrl);
+          return;
+        }
+        setAudioUrl(objectUrl);
+      } catch (error) {
+        if (!cancelled) setAudioError((error as Error).message || "Doprovod se nepodarilo otevrit.");
+      }
+    }
+
+    loadAudio();
+
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [currentSong?.audioHandleKey]);
 
   useEffect(() => {
     if (!pageCount) return;
@@ -181,17 +210,64 @@ export function PlayerView({
     closePlayer();
   }, [closePlayer]);
 
+  const toggleFullscreen = useCallback(() => {
+    if (document.fullscreenElement) {
+      document.exitFullscreen?.().catch(() => undefined);
+      return;
+    }
+
+    document.documentElement.requestFullscreen?.().catch(() => undefined);
+  }, []);
+
+  const toggleAudioPlayback = useCallback(async () => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    try {
+      if (audio.paused) {
+        await audio.play();
+      } else {
+        audio.pause();
+      }
+    } catch {
+      setAudioError("Doprovod se nepodarilo spustit.");
+    }
+  }, []);
+
+  const restartAudio = useCallback(async () => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    audio.currentTime = 0;
+    try {
+      await audio.play();
+    } catch {
+      setAudioError("Doprovod se nepodarilo spustit.");
+    }
+  }, []);
+
+  const toggleAudioMuted = useCallback(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    audio.muted = !audio.muted;
+    setAudioMuted(audio.muted);
+  }, []);
+
   useEffect(() => {
     const handleFullscreenChange = () => {
-      if (!document.fullscreenElement) closePlayer();
+      setIsFullscreen(Boolean(document.fullscreenElement));
     };
 
     document.addEventListener("fullscreenchange", handleFullscreenChange);
     return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
-  }, [closePlayer]);
+  }, []);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest(".player-control-column")) return;
+
       if (event.key === "Escape") {
         event.preventDefault();
         exitPlayer();
@@ -224,33 +300,60 @@ export function PlayerView({
     <main className="player-shell">
       <button className="touch-zone left-zone" aria-label="Predchozi stranka" onClick={goPrev} />
       <button className="touch-zone right-zone" aria-label="Dalsi stranka" onClick={goNext} />
-      <button
-        className="top-touch-zone"
-        aria-label="Zobrazit ovladani"
-        onClick={() => setToolbarVisible((visible) => !visible)}
-      />
 
-      <div className={`player-toolbar ${toolbarVisible ? "visible" : ""}`} onClick={(event) => event.stopPropagation()}>
-        <button className="icon-button" onClick={exitPlayer}>
-          <ArrowLeft size={20} />
-          <span>Menu</span>
-        </button>
-        <div className="player-title">
-          <strong>{currentSong.title}</strong>
-          <span>
-            {currentSong.author ? `${currentSong.author} · ` : ""}
-            strana {Math.min(session.pageNumber, pageCount || session.pageNumber)} / {pageCount || "-"}
-          </span>
-        </div>
+      <div
+        className="player-control-column"
+        title={audioError || currentSong.audioFileName || undefined}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <audio
+          key={`${currentSong.id}-${currentSong.audioHandleKey}`}
+          ref={audioRef}
+          src={audioUrl || undefined}
+          preload="metadata"
+          muted={audioMuted}
+          onPlay={() => setAudioPlaying(true)}
+          onPause={() => setAudioPlaying(false)}
+          onEnded={() => setAudioPlaying(false)}
+        />
         <button
           className="icon-only"
+          aria-label={audioPlaying ? "Pozastavit doprovod" : "Spustit doprovod"}
+          title={audioPlaying ? "Pozastavit doprovod" : "Spustit doprovod"}
+          disabled={!audioUrl}
+          onClick={toggleAudioPlayback}
+        >
+          {audioPlaying ? <Pause size={22} /> : <Play size={22} />}
+        </button>
+        <button
+          className="icon-only"
+          aria-label="Doprovod od zacatku"
+          title="Doprovod od zacatku"
+          disabled={!audioUrl}
+          onClick={restartAudio}
+        >
+          <RotateCcw size={21} />
+        </button>
+        <button
+          className="icon-only"
+          aria-label={audioMuted ? "Zapnout zvuk doprovodu" : "Ztlumit doprovod"}
+          title={audioMuted ? "Zapnout zvuk doprovodu" : "Ztlumit doprovod"}
+          disabled={!audioUrl}
+          onClick={toggleAudioMuted}
+        >
+          {audioMuted ? <VolumeX size={22} /> : <Volume2 size={22} />}
+        </button>
+        <button
+          className="icon-only"
+          aria-label={mode === "single" ? "Prepnout na dve stranky" : "Prepnout na jednu stranku"}
           title={mode === "single" ? "Dve stranky" : "Jedna stranka"}
           onClick={() => onSetViewMode(mode === "single" ? "double" : "single")}
         >
-          {mode === "single" ? <Columns2 size={21} /> : <Rows2 size={21} />}
+          {mode === "single" ? <Columns2 size={22} /> : <Rows2 size={22} />}
         </button>
         <button
           className="icon-only"
+          aria-label="Otocit doleva"
           title="Otocit doleva"
           onClick={() => onRotatePage(currentSong.id, session.pageNumber, -1)}
         >
@@ -258,21 +361,24 @@ export function PlayerView({
         </button>
         <button
           className="icon-only"
+          aria-label="Otocit doprava"
           title="Otocit doprava"
           onClick={() => onRotatePage(currentSong.id, session.pageNumber, 1)}
         >
           <RotateCw size={21} />
         </button>
-        <button className="icon-only subtle" title="Skryt listu" onClick={() => setToolbarVisible(false)}>
-          <X size={21} />
+        <button
+          className="icon-only"
+          aria-label={isFullscreen ? "Prepnout do okna" : "Cela obrazovka"}
+          title={isFullscreen ? "Okno" : "Cela obrazovka"}
+          onClick={toggleFullscreen}
+        >
+          {isFullscreen ? <Minimize2 size={22} /> : <Maximize2 size={22} />}
+        </button>
+        <button className="player-menu-button" onClick={exitPlayer}>
+          Menu
         </button>
       </div>
-
-      {!toolbarVisible ? (
-        <div className="toolbar-hint">
-          <PanelTopOpen size={18} />
-        </div>
-      ) : null}
 
       <div className={`pdf-stage ${mode}`}>
         {loadError ? <div className="player-message">{loadError}</div> : null}

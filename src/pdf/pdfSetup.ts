@@ -3,4 +3,6 @@ import workerUrl from "pdfjs-dist/build/pdf.worker.mjs?url";
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 
-export { pdfjs };
+const pdfjsWasmUrl = "/pdfjs/wasm/";
+
+export { pdfjs, pdfjsWasmUrl };

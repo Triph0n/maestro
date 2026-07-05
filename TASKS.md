@@ -80,3 +80,17 @@ Zdroj: `PRD.md` a `TECHNICAL_DESIGN.md`
 - [x] Provest finalni overeni.
   - Acceptance: Akceptacni kriteria v PRD jsou splnena.
   - Verification: Spustit `npm run build`.
+
+## Oprava: fullscreen jen z kliknuti uzivatele
+
+- [x] Odstranit automaticke volani nativniho fullscreen z PlayerView efektu.
+  - Acceptance: Otevreni PDF uz nevyvolava chybu `requestFullscreen` mimo uzivatelske gesto.
+  - Verification: Kod nevola `requestFullscreen` pri mountu `PlayerView`.
+
+- [x] Pridat rucni fullscreen tlacitko v prehravaci.
+  - Acceptance: Nativni fullscreen se spousti jen z kliknuti v liste prehravace.
+  - Verification: Volani `requestFullscreen` je v handleru tlacitka.
+
+- [x] Zamezit vyzadani PDF opravneni z efektu prehravace.
+  - Acceptance: `PlayerView` pri nacitani PDF pouze kontroluje existujici opravneni a nove opravneni se vyzada z menu.
+  - Verification: `getFileFromHandle` pouziva `queryPermission`, ne `requestPermission`.

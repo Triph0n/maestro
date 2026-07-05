@@ -6,6 +6,8 @@ export type Song = {
   author: string;
   fileName: string;
   handleKey: string;
+  audioFileName?: string;
+  audioHandleKey?: string;
   createdAt: string;
   updatedAt: string;
 };
