@@ -8,6 +8,7 @@ export type Song = {
   handleKey: string;
   audioFileName?: string;
   audioHandleKey?: string;
+  lastPageNumber?: number;
   createdAt: string;
   updatedAt: string;
 };
@@ -34,6 +35,8 @@ export type PageRotation = {
 
 export type AppSettings = {
   pageViewMode: PageViewMode;
+  nightMode?: boolean;
+  halfPageTurn?: boolean;
 };
 
 export type AppData = {

@@ -19,26 +19,29 @@ export const emptyAppData = (): AppData => ({
 
 export const uid = () => crypto.randomUUID();
 
+export function normalizeAppData(parsed: Partial<AppData>): AppData {
+  const migratedSongs = (parsed.songs ?? []).map((song: any) => ({
+    ...song,
+    handleKey: song.handleKey ?? song.storageKey ?? "",
+  }));
+
+  return {
+    ...emptyAppData(),
+    ...parsed,
+    songs: migratedSongs.filter((song) => song.handleKey),
+    settings: {
+      ...emptyAppData().settings,
+      ...parsed.settings,
+    },
+  };
+}
+
 export function loadAppData(): AppData {
   const raw = localStorage.getItem(META_KEY);
   if (!raw) return emptyAppData();
 
   try {
-    const parsed = JSON.parse(raw) as Partial<AppData>;
-    const migratedSongs = (parsed.songs ?? []).map((song: any) => ({
-      ...song,
-      handleKey: song.handleKey ?? song.storageKey ?? "",
-    }));
-
-    return {
-      ...emptyAppData(),
-      ...parsed,
-      songs: migratedSongs.filter((song) => song.handleKey),
-      settings: {
-        ...emptyAppData().settings,
-        ...parsed.settings,
-      },
-    };
+    return normalizeAppData(JSON.parse(raw) as Partial<AppData>);
   } catch {
     return emptyAppData();
   }

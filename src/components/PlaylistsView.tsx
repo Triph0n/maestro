@@ -12,7 +12,7 @@ type PlaylistsViewProps = {
   onAddSong: (playlistId: string, songId: string) => void;
   onRemoveItem: (itemId: string) => void;
   onMoveItem: (itemId: string, direction: -1 | 1) => void;
-  onReorderItem: (itemId: string, targetItemId: string) => void;
+  onReorderItem: (itemId: string, targetItemId: string | null) => void;
   onOpenPlaylist: (playlistId: string) => void;
 };
 
@@ -204,6 +204,29 @@ export function PlaylistsView({
                     </div>
                   );
                 })}
+
+                {draggedItemId && selectedItems.length > 1 ? (
+                  <div
+                    className={`setlist-drop-end ${dragTargetItemId === "end" ? "drop-target" : ""}`}
+                    onDragEnter={(event) => {
+                      event.preventDefault();
+                      setDragTargetItemId("end");
+                    }}
+                    onDragOver={(event) => {
+                      event.preventDefault();
+                      event.dataTransfer.dropEffect = "move";
+                    }}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      const sourceItemId = event.dataTransfer.getData("text/plain") || draggedItemId;
+                      if (sourceItemId) onReorderItem(sourceItemId, null);
+                      setDraggedItemId("");
+                      setDragTargetItemId("");
+                    }}
+                  >
+                    Presunout na konec
+                  </div>
+                ) : null}
               </div>
             </>
           ) : (

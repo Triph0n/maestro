@@ -1,0 +1,19 @@
+{
+  "name": "Maestro",
+  "short_name": "Maestro",
+  "description": "PDF noty pro Windows tablet",
+  "lang": "cs",
+  "start_url": ".",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#120904",
+  "theme_color": "#2a1508",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

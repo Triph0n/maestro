@@ -18,12 +18,14 @@ export function PdfCanvas({ pdfDocument, pageNumber, rotation }: PdfCanvasProps)
 
     let cancelled = false;
     let renderTask: any = null;
+    let generation = 0;
 
     const render = async () => {
+      const myGeneration = ++generation;
       try {
         setError("");
         const page = await pdfDocument.getPage(pageNumber);
-        if (cancelled) return;
+        if (cancelled || myGeneration !== generation) return;
 
         const baseViewport = page.getViewport({ scale: 1, rotation });
         const ratio = window.devicePixelRatio || 1;
@@ -42,9 +44,10 @@ export function PdfCanvas({ pdfDocument, pageNumber, rotation }: PdfCanvasProps)
         const context = canvas.getContext("2d");
         if (!nextContext || !context) return;
 
+        renderTask?.cancel();
         renderTask = page.render({ canvasContext: nextContext, viewport });
         await renderTask.promise;
-        if (cancelled) return;
+        if (cancelled || myGeneration !== generation) return;
 
         canvas.width = nextCanvas.width;
         canvas.height = nextCanvas.height;

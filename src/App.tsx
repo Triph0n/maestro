@@ -8,6 +8,7 @@ import {
   getPermittedFileHandle,
   isFileSystemAccessSupported,
   loadAppData,
+  normalizeAppData,
   pickAudioHandle,
   pickPdfHandle,
   preloadFileHandles,
@@ -170,6 +171,22 @@ export default function App() {
     }
   }
 
+  function updateSong(songId: string, fields: { title: string; author: string }) {
+    setData((current) => ({
+      ...current,
+      songs: current.songs.map((candidate) =>
+        candidate.id === songId
+          ? {
+              ...candidate,
+              title: fields.title.trim() || candidate.title,
+              author: fields.author.trim(),
+              updatedAt: now(),
+            }
+          : candidate,
+      ),
+    }));
+  }
+
   async function openSong(songId: string) {
     if (!isFileSystemAccessSupported()) {
       setStatus("Pro otevirani PDF bez kopirovani pouzij Microsoft Edge nebo Google Chrome.");
@@ -191,7 +208,11 @@ export default function App() {
       }
 
       setStatus(audioWarning);
-      setPlayerSession({ songIds: [songId], currentSongIndex: 0, pageNumber: 1 });
+      setPlayerSession({
+        songIds: [songId],
+        currentSongIndex: 0,
+        pageNumber: song.lastPageNumber ?? 1,
+      });
     } catch (error) {
       setStatus((error as Error).message);
     }
@@ -304,25 +325,36 @@ export default function App() {
     });
   }
 
-  function reorderPlaylistItem(itemId: string, targetItemId: string) {
+  function reorderPlaylistItem(itemId: string, targetItemId: string | null) {
     setData((current) => {
       if (itemId === targetItemId) return current;
 
       const item = current.playlistItems.find((candidate) => candidate.id === itemId);
-      const targetItem = current.playlistItems.find((candidate) => candidate.id === targetItemId);
-      if (!item || !targetItem || item.playlistId !== targetItem.playlistId) return current;
+      if (!item) return current;
+
+      const targetItem = targetItemId
+        ? current.playlistItems.find((candidate) => candidate.id === targetItemId)
+        : null;
+      if (targetItemId && (!targetItem || item.playlistId !== targetItem.playlistId)) return current;
 
       const items = current.playlistItems
         .filter((candidate) => candidate.playlistId === item.playlistId)
         .sort((a, b) => a.position - b.position);
       const fromIndex = items.findIndex((candidate) => candidate.id === itemId);
-      const targetIndex = items.findIndex((candidate) => candidate.id === targetItemId);
-      if (fromIndex < 0 || targetIndex < 0) return current;
+      if (fromIndex < 0) return current;
 
       const reordered = [...items];
       const [movedItem] = reordered.splice(fromIndex, 1);
-      const insertIndex = fromIndex < targetIndex ? targetIndex - 1 : targetIndex;
-      reordered.splice(insertIndex, 0, movedItem);
+
+      if (targetItem) {
+        const targetIndex = items.findIndex((candidate) => candidate.id === targetItem.id);
+        if (targetIndex < 0) return current;
+        const insertIndex = fromIndex < targetIndex ? targetIndex - 1 : targetIndex;
+        reordered.splice(insertIndex, 0, movedItem);
+      } else {
+        reordered.push(movedItem);
+      }
+
       const positions = new Map(reordered.map((candidate, position) => [candidate.id, position]));
 
       return {
@@ -375,6 +407,66 @@ export default function App() {
     setData((current) => ({ ...current, settings: { ...current.settings, pageViewMode: mode } }));
   }
 
+  function toggleNightMode() {
+    setData((current) => ({
+      ...current,
+      settings: { ...current.settings, nightMode: !current.settings.nightMode },
+    }));
+  }
+
+  function toggleHalfPageTurn() {
+    setData((current) => ({
+      ...current,
+      settings: { ...current.settings, halfPageTurn: !current.settings.halfPageTurn },
+    }));
+  }
+
+  function exportData() {
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `maestro-zaloha-${new Date().toISOString().slice(0, 10)}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+    setStatus("Zaloha knihovny a playlistu stazena.");
+  }
+
+  function importData(fileContent: string) {
+    try {
+      const parsed = JSON.parse(fileContent) as Partial<AppData>;
+      if (!Array.isArray(parsed.songs) || !Array.isArray(parsed.playlists)) {
+        setStatus("Soubor neni platna zaloha Maestra.");
+        return;
+      }
+
+      if (!window.confirm("Nahradit soucasnou knihovnu a playlisty obsahem zalohy?")) return;
+
+      setData(normalizeAppData(parsed));
+      setStatus("Zaloha nactena. PDF soubory pripadne znovu propoj ikonou retezu.");
+    } catch {
+      setStatus("Soubor neni platna zaloha Maestra.");
+    }
+  }
+
+  function handleSessionChange(session: PlayerSession) {
+    setPlayerSession(session);
+
+    // Zapamatuj posledni stranku skladby; docasna hodnota MAX_SAFE_INTEGER
+    // z prechodu na predchozi skladbu se ukladat nesmi.
+    const songId = session.songIds[session.currentSongIndex];
+    if (!songId || session.pageNumber < 1 || session.pageNumber > 10000) return;
+
+    setData((current) => ({
+      ...current,
+      songs: current.songs.map((candidate) =>
+        candidate.id === songId && candidate.lastPageNumber !== session.pageNumber
+          ? { ...candidate, lastPageNumber: session.pageNumber }
+          : candidate,
+      ),
+    }));
+  }
+
   function rotatePage(songId: string, pageNumber: number, direction: -1 | 1) {
     setData((current) => {
       const existing = current.rotations.find(
@@ -403,10 +495,12 @@ export default function App() {
       <PlayerView
         data={data}
         session={playerSession}
-        onChangeSession={setPlayerSession}
+        onChangeSession={handleSessionChange}
         onExit={closePlayerToLibrary}
         onSetViewMode={setViewMode}
         onRotatePage={rotatePage}
+        onToggleNightMode={toggleNightMode}
+        onToggleHalfPageTurn={toggleHalfPageTurn}
       />
     );
   }
@@ -442,6 +536,9 @@ export default function App() {
             onReconnectPdf={reconnectPdf}
             onAttachAudio={attachAudio}
             onDeleteSong={deleteSong}
+            onUpdateSong={updateSong}
+            onExportData={exportData}
+            onImportData={importData}
             fileSystemAccessSupported={isFileSystemAccessSupported()}
           />
         ) : (

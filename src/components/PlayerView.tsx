@@ -2,11 +2,14 @@ import {
   Columns2,
   Maximize2,
   Minimize2,
+  Moon,
   Pause,
   Play,
   RotateCcw,
   RotateCw,
   Rows2,
+  SeparatorHorizontal,
+  Sun,
   Volume2,
   VolumeX,
 } from "lucide-react";
@@ -23,6 +26,8 @@ type PlayerViewProps = {
   onExit: () => void;
   onSetViewMode: (mode: PageViewMode) => void;
   onRotatePage: (songId: string, pageNumber: number, direction: -1 | 1) => void;
+  onToggleNightMode: () => void;
+  onToggleHalfPageTurn: () => void;
 };
 
 export function PlayerView({
@@ -32,6 +37,8 @@ export function PlayerView({
   onExit,
   onSetViewMode,
   onRotatePage,
+  onToggleNightMode,
+  onToggleHalfPageTurn,
 }: PlayerViewProps) {
   const [pdfDocument, setPdfDocument] = useState<any>(null);
   const [pageCount, setPageCount] = useState(0);
@@ -47,7 +54,14 @@ export function PlayerView({
   const currentSongId = session.songIds[session.currentSongIndex];
   const currentSong = data.songs.find((song) => song.id === currentSongId);
   const mode = data.settings.pageViewMode;
+  const nightMode = Boolean(data.settings.nightMode);
+  const halfPageEnabled = Boolean(data.settings.halfPageTurn) && mode === "single";
+  const [halfTurn, setHalfTurn] = useState(false);
   const step = mode === "double" ? 2 : 1;
+
+  useEffect(() => {
+    setHalfTurn(false);
+  }, [currentSongId, session.pageNumber, mode]);
 
   const rotationByPage = useMemo(() => {
     const map = new Map<number, number>();
@@ -74,6 +88,7 @@ export function PlayerView({
 
   useEffect(() => {
     let cancelled = false;
+    let loadedDoc: any = null;
     setPdfDocument(null);
     setPageCount(0);
     setLoadError("");
@@ -87,7 +102,11 @@ export function PlayerView({
         if (cancelled) return;
         const loadingTask = pdfjs.getDocument({ data: new Uint8Array(bytes), wasmUrl: pdfjsWasmUrl });
         const doc = await loadingTask.promise;
-        if (cancelled) return;
+        if (cancelled) {
+          doc.destroy().catch(() => undefined);
+          return;
+        }
+        loadedDoc = doc;
         setPdfDocument(doc);
         setPageCount(doc.numPages);
       } catch (error) {
@@ -99,6 +118,7 @@ export function PlayerView({
 
     return () => {
       cancelled = true;
+      loadedDoc?.destroy().catch(() => undefined);
     };
   }, [currentSong]);
 
@@ -167,6 +187,12 @@ export function PlayerView({
     const nextPage = session.pageNumber + step;
 
     if (nextPage <= pageCount) {
+      // Pulstranka: prvni stisk ukaze horni polovinu dalsi strany, druhy dokonci otoceni.
+      if (halfPageEnabled && !halfTurn) {
+        setHalfTurn(true);
+        return;
+      }
+      setHalfTurn(false);
       onChangeSession({ ...session, pageNumber: nextPage });
       return;
     }
@@ -178,9 +204,14 @@ export function PlayerView({
         pageNumber: 1,
       });
     }
-  }, [onChangeSession, pageCount, session, step]);
+  }, [halfPageEnabled, halfTurn, onChangeSession, pageCount, session, step]);
 
   const goPrev = useCallback(() => {
+    if (halfPageEnabled && halfTurn) {
+      setHalfTurn(false);
+      return;
+    }
+
     const previousPage = session.pageNumber - step;
 
     if (previousPage >= 1) {
@@ -195,7 +226,27 @@ export function PlayerView({
         pageNumber: Number.MAX_SAFE_INTEGER,
       });
     }
-  }, [onChangeSession, session, step]);
+  }, [halfPageEnabled, halfTurn, onChangeSession, session, step]);
+
+  const goNextSong = useCallback(() => {
+    if (session.currentSongIndex < session.songIds.length - 1) {
+      onChangeSession({
+        ...session,
+        currentSongIndex: session.currentSongIndex + 1,
+        pageNumber: 1,
+      });
+    }
+  }, [onChangeSession, session]);
+
+  const goPrevSong = useCallback(() => {
+    if (session.currentSongIndex > 0) {
+      onChangeSession({
+        ...session,
+        currentSongIndex: session.currentSongIndex - 1,
+        pageNumber: 1,
+      });
+    }
+  }, [onChangeSession, session]);
 
   const closePlayer = useCallback(() => {
     if (isExitingRef.current) return;
@@ -263,30 +314,66 @@ export function PlayerView({
     return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
   }, []);
 
+  const keyActionsRef = useRef({ exitPlayer, goNext, goPrev, goNextSong, goPrevSong });
   useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null;
-      if (target?.closest(".player-control-column")) return;
+    keyActionsRef.current = { exitPlayer, goNext, goPrev, goNextSong, goPrevSong };
+  });
 
-      if (event.key === "Escape") {
-        event.preventDefault();
-        exitPlayer();
-      }
+  useEffect(() => {
+    // Listenery jsou stabilni (aktualni akce berou z ref), aby zmena stranky
+    // neprerusila casovac dlouheho stisku pedalu.
+    let longPressTimer: number | null = null;
 
-      if (["ArrowRight", "PageDown", " "].includes(event.key)) {
-        event.preventDefault();
-        goNext();
-      }
-
-      if (["ArrowLeft", "PageUp"].includes(event.key)) {
-        event.preventDefault();
-        goPrev();
+    const clearLongPress = () => {
+      if (longPressTimer !== null) {
+        window.clearTimeout(longPressTimer);
+        longPressTimer = null;
       }
     };
 
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Drzeny pedal (PageFlip s auto-repeat) nesmi prolistovat pul skladby.
+      if (event.repeat) return;
+
+      // Space/Enter na tlacitku v ovladacim sloupci necha aktivovat tlacitko;
+      // sipky a PageUp/Down z pedalu musi listovat i kdyz ma tlacitko fokus.
+      const target = event.target as HTMLElement | null;
+      if (target?.closest(".player-control-column") && [" ", "Enter"].includes(event.key)) return;
+
+      if (event.key === "Escape") {
+        event.preventDefault();
+        keyActionsRef.current.exitPlayer();
+        return;
+      }
+
+      // PageFlip Butterfly rezimy: PgUp/PgDn, sipky vlevo/vpravo, sipky nahoru/dolu.
+      // Kratky stisk = stranka, drzeni pres 700 ms = dalsi/predchozi skladba.
+      if (["ArrowRight", "ArrowDown", "PageDown", " ", "Enter"].includes(event.key)) {
+        event.preventDefault();
+        keyActionsRef.current.goNext();
+        clearLongPress();
+        longPressTimer = window.setTimeout(() => keyActionsRef.current.goNextSong(), 700);
+        return;
+      }
+
+      if (["ArrowLeft", "ArrowUp", "PageUp"].includes(event.key)) {
+        event.preventDefault();
+        keyActionsRef.current.goPrev();
+        clearLongPress();
+        longPressTimer = window.setTimeout(() => keyActionsRef.current.goPrevSong(), 700);
+      }
+    };
+
+    const handleKeyUp = () => clearLongPress();
+
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [exitPlayer, goNext, goPrev]);
+    window.addEventListener("keyup", handleKeyUp);
+    return () => {
+      clearLongPress();
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+    };
+  }, []);
 
   if (!currentSong) {
     return (
@@ -298,8 +385,8 @@ export function PlayerView({
 
   return (
     <main className="player-shell">
-      <button className="touch-zone left-zone" aria-label="Predchozi stranka" onClick={goPrev} />
-      <button className="touch-zone right-zone" aria-label="Dalsi stranka" onClick={goNext} />
+      <button className="touch-zone left-zone" tabIndex={-1} aria-label="Predchozi stranka" onClick={goPrev} />
+      <button className="touch-zone right-zone" tabIndex={-1} aria-label="Dalsi stranka" onClick={goNext} />
 
       <div
         className="player-control-column"
@@ -353,6 +440,23 @@ export function PlayerView({
         </button>
         <button
           className="icon-only"
+          aria-label={nightMode ? "Vypnout nocni rezim" : "Zapnout nocni rezim"}
+          title={nightMode ? "Denni noty" : "Nocni noty"}
+          onClick={onToggleNightMode}
+        >
+          {nightMode ? <Sun size={22} /> : <Moon size={22} />}
+        </button>
+        <button
+          className={data.settings.halfPageTurn ? "icon-only primary" : "icon-only"}
+          aria-label={data.settings.halfPageTurn ? "Vypnout pulstrankove otaceni" : "Zapnout pulstrankove otaceni"}
+          title="Pulstrankove otaceni (jen pri jedne strance)"
+          disabled={mode !== "single"}
+          onClick={onToggleHalfPageTurn}
+        >
+          <SeparatorHorizontal size={22} />
+        </button>
+        <button
+          className="icon-only"
           aria-label="Otocit doleva"
           title="Otocit doleva"
           onClick={() => onRotatePage(currentSong.id, session.pageNumber, -1)}
@@ -380,7 +484,7 @@ export function PlayerView({
         </button>
       </div>
 
-      <div className={`pdf-stage ${mode}`}>
+      <div className={`pdf-stage ${mode}${nightMode ? " night" : ""}`}>
         {loadError ? <div className="player-message">{loadError}</div> : null}
         {!loadError && !pdfDocument ? <div className="player-message">Nacitam PDF...</div> : null}
         {pdfDocument
@@ -393,6 +497,32 @@ export function PlayerView({
               />
             ))
           : null}
+
+        {pdfDocument && halfPageEnabled && halfTurn && session.pageNumber + 1 <= pageCount ? (
+          <>
+            <div className="half-page-overlay">
+              <PdfCanvas
+                pdfDocument={pdfDocument}
+                pageNumber={session.pageNumber + 1}
+                rotation={rotationByPage.get(session.pageNumber + 1) ?? 0}
+              />
+            </div>
+            <div className="half-page-divider" />
+          </>
+        ) : null}
+      </div>
+
+      <div className="page-indicator" aria-hidden="true">
+        <span className="page-indicator-title">{currentSong.title}</span>
+        <span>
+          {session.songIds.length > 1
+            ? `${session.currentSongIndex + 1}/${session.songIds.length} · `
+            : ""}
+          {visiblePages.length === 2
+            ? `${visiblePages[0]}–${visiblePages[1]}`
+            : `${session.pageNumber}${halfTurn ? "½" : ""}`}{" "}
+          / {pageCount || "…"}
+        </span>
       </div>
     </main>
   );
