@@ -94,3 +94,11 @@ Zdroj: `PRD.md` a `TECHNICAL_DESIGN.md`
 - [x] Zamezit vyzadani PDF opravneni z efektu prehravace.
   - Acceptance: `PlayerView` pri nacitani PDF pouze kontroluje existujici opravneni a nove opravneni se vyzada z menu.
   - Verification: `getFileFromHandle` pouziva `queryPermission`, ne `requestPermission`.
+
+## Oprava: okamzite otaceni stran (2026-09-19)
+
+- [x] Overit pricinu a zapsat pozadavky/navrh.
+- [x] Opravit zivotnost dokumentu a predvykreslit omezene okoli stran.
+- [x] Overit build a chovani v prohlizeci na skutecnych notach.
+
+Overeni 2026-09-19: npm run build prosel (pouze upozorneni Vite na velikost bundle); git diff --check bez chyb. Izolovany Edge/Playwright na produkcnim serveru 127.0.0.1:43175 a skutecnem Suzuki Cello School Book 4 PDF: pripraveny canvas zustal stejny, bez noveho vykresleni, od kliknuti po nasledujici animation frame 5,2 ms v tomto behu. Pocet PDF requestu se pri otaceni nezvysil. Proslo ulozeni pozice, zpet, pulstranka, dvojstranka, rotace, resize a limit maximalne ctyr vrstev. Zadna pageerror ani pdf-error. Screenshoty dvojstranky a pulstranky vizualne zkontrolovany. Produkcni dist aktualizovan; otevrena uzivatelska karta potrebuje obnovit F5.

@@ -309,3 +309,10 @@ Maestro si ma vyzadat povoleni k PDF souboru primo pri kliknuti na otevreni skla
 - Kliknuti na playlist vyzada chybejici povoleni k PDF souborum v playlistu driv, nez se otevre PDF prohlizec.
 - Pokud prohlizec povoleni odmita, uzivatel vidi praktickou hlasku a aplikace nespadne.
 - Build aplikace projde bez TypeScript chyb.
+
+## Oprava: okamzite otaceni stran (2026-09-19)
+
+Cil: pri hrani prepnut na pripravenou sousedni stranku bez cekani na otevreni PDF a jeho vykresleni.
+Rozsah: jedna/dve stranky, pulstrankove otaceni, zpet, rotace a zmena velikosti okna. Zachovat ulozeni posledni stranky.
+Akceptace: ulozeni pozice znovu nenacita dokument; sousedni stranky jsou vykreslene pred kliknutim; pripraveny canvas se pri otoceni znovu nevykresluje; cache je omezena na okoli aktualni stranky.
+Limit: prvni otevreni PDF a dosud nepripravene stranky stale vyzaduji vykresleni; prechod mezi skladbami neni soucasti teto opravy.

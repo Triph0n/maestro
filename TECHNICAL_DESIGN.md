@@ -283,3 +283,41 @@ Prohlizec odmita `requestFullscreen`, pokud neni spusteny primo z uzivatelske ak
 
 - TypeScript build musi projit.
 - Manualne overit, ze otevreni PDF uz nevola `requestFullscreen` z efektu a ze nativni fullscreen funguje z tlacitka v liste.
+
+## 16. Zmena: zdrojova slozka library (kopirovani pri importu)
+
+### Kontext
+
+Ukladani pouhych file handles znamenalo, ze presun nebo prejmenovani puvodniho souboru rozbilo skladbu v knihovne a kazde otevreni vyzadovalo opravneni prohlizece.
+
+### Navrh
+
+- U aplikace vznika zdrojova slozka `library/`. Kazdy import (PDF i audio) se do ni zkopiruje pres male HTTP API ve Vite serveru (`/library-api/upload`, `/library-api/list`, `/library-api/delete`, soubory na `/library/<nazev>`). API je registrovane pro dev i preview server.
+- `Song` ma nova pole `libraryFileName` a `audioLibraryFileName`; `handleKey` je nadale volitelny (jen stare skladby pred migraci).
+- Otevirani cte prednostne kopii z library pres `fetch` - zadne opravneni File System Access neni potreba.
+- Stare skladby se migruji automaticky: pri startu (pokud je opravneni uz udelene) nebo pri prvnim otevreni; soubor se zkopiruje do library a handle se prestane pouzivat.
+- Slozka `library/` se pri startu skenuje: nova PDF, ktera tam uzivatel rucne nakopiruje, se sama objevi v knihovne.
+- Smazani skladby smaze i kopii v library (puvodni soubor zustava).
+- Kolize nazvu resi server priponou ` (2)`, ` (3)`...
+
+### Dotcene soubory
+
+- `vite.config.ts`
+- `src/data/types.ts`
+- `src/data/storage.ts`
+- `src/App.tsx`
+- `src/components/PlayerView.tsx`
+- `src/components/LibraryView.tsx`
+- `src/pdf/thumbnail.ts`
+
+### Overeni
+
+- TypeScript build musi projit.
+- `/library-api/list` vraci soubory, `/library/<nazev>` servuje PDF s `application/pdf`.
+- Manualne overit import, otevreni po presunu puvodniho souboru a automaticke nacteni rucne pridaneho PDF.
+
+## Oprava: okamzite otaceni stran (2026-09-19)
+
+Pricina: handleSessionChange meni Song.lastPageNumber, efekt zavisly na celem currentSong proto znovu oteviral PDF. Dosavadni getPage prefetch navic nepripravoval bitmapy.
+Reseni: zivotnost dokumentu vazat na id a zdroj PDF (libraryFileName/handleKey). PlayerView drzi stabilne klicovane vrstvy aktualni, predchozi a dvou nasledujicich stran/dvojstran. Skryte vrstvy maji plnou velikost a visibility:hidden, nikoli display:none. Otoceni meni pouze viditelnost, pulstranka pouziva orez predem vykreslene nasledujici vrstvy. Stare vrstvy se odpojuji a uvolnuji pamet. PdfCanvas ignoruje duplicitni ResizeObserver oznameni stejne velikosti.
+Overeni: TypeScript/production build; prohlizec s realnym PDF, kontrola identity canvasu a dokumentovych requestu pri otaceni, dvojstranky, pulstranka, rotace a resize.

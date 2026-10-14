@@ -1,22 +1,30 @@
 import { BookOpen, ListMusic } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { LibraryView } from "./components/LibraryView";
 import { PlayerView } from "./components/PlayerView";
 import { PlaylistsView } from "./components/PlaylistsView";
 import {
   deleteFileHandle,
+  deleteLibraryFile,
+  deleteThumbnail,
+  getAllThumbnails,
+  getFileHandle,
+  getLibraryFile,
   getPermittedFileHandle,
+  importFileToLibrary,
   isFileSystemAccessSupported,
+  listLibraryFiles,
   loadAppData,
   normalizeAppData,
   pickAudioHandle,
   pickPdfHandle,
   preloadFileHandles,
-  putFileHandle,
+  putThumbnail,
   saveAppData,
   uid,
 } from "./data/storage";
-import type { AppData, PageViewMode, PlayerSession, PlaylistItem, Song } from "./data/types";
+import { generateThumbnail } from "./pdf/thumbnail";
+import type { AppData, LibrarySort, PageViewMode, PlayerSession, PlaylistItem, Song } from "./data/types";
 
 type AppView = "library" | "playlists";
 
@@ -44,16 +52,144 @@ export default function App() {
   const [view, setView] = useState<AppView>("library");
   const [playerSession, setPlayerSession] = useState<PlayerSession | null>(null);
   const [status, setStatus] = useState("");
+  const [thumbnails, setThumbnails] = useState<Record<string, string>>({});
 
   useEffect(() => {
     saveAppData(data);
   }, [data]);
 
   useEffect(() => {
+    getAllThumbnails()
+      .then(setThumbnails)
+      .catch(() => {});
+  }, []);
+
+  /** Vygeneruje a ulozi miniaturu prvni stranky; selhani (chybejici opravneni) tise ignoruje. */
+  async function refreshThumbnail(songId: string, file?: File, song?: Song) {
+    try {
+      let pdfFile = file ?? null;
+      if (!pdfFile && song) {
+        if (song.libraryFileName) {
+          pdfFile = await getLibraryFile(song.libraryFileName);
+        } else if (song.handleKey) {
+          const handle = await getFileHandle(song.handleKey);
+          if (!handle) return;
+          if ((await handle.queryPermission({ mode: "read" })) !== "granted") return;
+          pdfFile = await handle.getFile();
+        }
+      }
+      if (!pdfFile) return;
+
+      const dataUrl = await generateThumbnail(pdfFile);
+      await putThumbnail(songId, dataUrl);
+      setThumbnails((current) => ({ ...current, [songId]: dataUrl }));
+    } catch {
+      // Miniatura je jen bonus - bez ni knihovna funguje dal.
+    }
+  }
+
+  useEffect(() => {
     preloadFileHandles(
       data.songs.flatMap((song) => [song.handleKey, song.audioHandleKey].filter(Boolean) as string[]),
     );
   }, [data.songs]);
+
+  const migratingSongIdsRef = useRef(new Set<string>());
+
+  /**
+   * Zkopiruje soubory stare skladby (file handle) do slozky library.
+   * Probehne jen kdyz uz je opravneni udelene; jinak se zkusi znovu pri otevreni.
+   */
+  async function migrateSongToLibrary(song: Song) {
+    if (migratingSongIdsRef.current.has(song.id)) return;
+    migratingSongIdsRef.current.add(song.id);
+
+    const updates: Partial<Song> = {};
+    try {
+      if (!song.libraryFileName && song.handleKey) {
+        const handle = await getFileHandle(song.handleKey);
+        if (handle && (await handle.queryPermission({ mode: "read" })) === "granted") {
+          updates.libraryFileName = await importFileToLibrary(await handle.getFile());
+          updates.fileName = updates.libraryFileName;
+        }
+      }
+      if (!song.audioLibraryFileName && song.audioHandleKey) {
+        const handle = await getFileHandle(song.audioHandleKey);
+        if (handle && (await handle.queryPermission({ mode: "read" })) === "granted") {
+          updates.audioLibraryFileName = await importFileToLibrary(await handle.getFile());
+          updates.audioFileName = updates.audioLibraryFileName;
+        }
+      }
+    } catch {
+      migratingSongIdsRef.current.delete(song.id);
+      return;
+    }
+
+    if (!Object.keys(updates).length) {
+      migratingSongIdsRef.current.delete(song.id);
+      return;
+    }
+
+    setData((current) => ({
+      ...current,
+      songs: current.songs.map((candidate) =>
+        candidate.id === song.id ? { ...candidate, ...updates, updatedAt: now() } : candidate,
+      ),
+    }));
+  }
+
+  const libraryScanRef = useRef(false);
+
+  // Pri startu: nacti nove soubory ze slozky library jako skladby
+  // a zmigruj stare skladby, u kterych uz je opravneni udelene.
+  useEffect(() => {
+    if (libraryScanRef.current) return;
+    libraryScanRef.current = true;
+
+    async function syncLibraryFolder() {
+      try {
+        const files = await listLibraryFiles();
+        const pdfFiles = files.filter((fileName) => fileName.toLowerCase().endsWith(".pdf"));
+        const timestamp = now();
+        const referenced = new Set(
+          data.songs.flatMap((song) => [song.libraryFileName, song.fileName].filter(Boolean)),
+        );
+        const scannedSongs = pdfFiles
+          .filter((fileName) => !referenced.has(fileName))
+          .map((fileName): Song => ({
+            id: uid(),
+            title: titleFromFileName(fileName),
+            author: "",
+            fileName,
+            libraryFileName: fileName,
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          }));
+        if (!scannedSongs.length) return;
+
+        setData((current) => {
+          const currentRefs = new Set(
+            current.songs.flatMap((song) => [song.libraryFileName, song.fileName].filter(Boolean)),
+          );
+          const freshSongs = scannedSongs.filter((song) => !currentRefs.has(song.libraryFileName!));
+          if (!freshSongs.length) return current;
+          return { ...current, songs: [...current.songs, ...freshSongs] };
+        });
+
+        for (const song of scannedSongs) void refreshThumbnail(song.id, undefined, song);
+      } catch {
+        // Bez serveroveho API (napr. otevrene primo ze souboru) sken tise preskocime.
+      }
+    }
+
+    void syncLibraryFolder();
+    for (const song of data.songs) {
+      if (!song.libraryFileName || (song.audioHandleKey && !song.audioLibraryFileName)) {
+        void migrateSongToLibrary(song);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const playlistSongIds = useMemo(() => {
     const map = new Map<string, string[]>();
@@ -78,23 +214,24 @@ export default function App() {
         return;
       }
 
-      const id = uid();
-      const handleKey = `pdf-handle-${id}`;
-      await putFileHandle(handleKey, handle);
+      const file = await handle.getFile();
+      const libraryFileName = await importFileToLibrary(file);
 
+      const id = uid();
       const timestamp = now();
       const song: Song = {
         id,
         title: titleFromFileName(handle.name),
         author: "",
-        fileName: handle.name,
-        handleKey,
+        fileName: libraryFileName,
+        libraryFileName,
         createdAt: timestamp,
         updatedAt: timestamp,
       };
 
       setData((current) => ({ ...current, songs: [...current.songs, song] }));
-      setStatus("PDF propojeno. Soubor zustava v pocitaci.");
+      setStatus(`PDF zkopirovano do slozky library jako „${libraryFileName}“.`);
+      void refreshThumbnail(id, file);
       setPlayerSession({ songIds: [song.id], currentSongIndex: 0, pageNumber: 1 });
     } catch (error) {
       if ((error as Error).name === "AbortError") return;
@@ -111,9 +248,12 @@ export default function App() {
         return;
       }
 
+      const file = await handle.getFile();
+      const libraryFileName = await importFileToLibrary(file);
+
       const song = data.songs.find((candidate) => candidate.id === songId);
-      const handleKey = song?.handleKey || `pdf-handle-${songId}`;
-      await putFileHandle(handleKey, handle);
+      if (song?.libraryFileName) void deleteLibraryFile(song.libraryFileName);
+      if (song?.handleKey) void deleteFileHandle(song.handleKey);
 
       setData((current) => ({
         ...current,
@@ -121,15 +261,17 @@ export default function App() {
           candidate.id === songId
             ? {
                 ...candidate,
-                fileName: handle.name,
-                handleKey,
+                fileName: libraryFileName,
+                libraryFileName,
+                handleKey: undefined,
                 title: candidate.title.trim() ? candidate.title : titleFromFileName(handle.name),
                 updatedAt: now(),
               }
             : candidate,
         ),
       }));
-      setStatus("PDF znovu propojeno.");
+      setStatus(`PDF zkopirovano do slozky library jako „${libraryFileName}“.`);
+      void refreshThumbnail(songId, file);
     } catch (error) {
       if ((error as Error).name === "AbortError") return;
       setStatus((error as Error).message);
@@ -147,9 +289,12 @@ export default function App() {
         return;
       }
 
+      const file = await handle.getFile();
+      const audioLibraryFileName = await importFileToLibrary(file);
+
       const song = data.songs.find((candidate) => candidate.id === songId);
-      const audioHandleKey = song?.audioHandleKey || `audio-handle-${songId}`;
-      await putFileHandle(audioHandleKey, handle);
+      if (song?.audioLibraryFileName) void deleteLibraryFile(song.audioLibraryFileName);
+      if (song?.audioHandleKey) void deleteFileHandle(song.audioHandleKey);
 
       setData((current) => ({
         ...current,
@@ -157,21 +302,22 @@ export default function App() {
           candidate.id === songId
             ? {
                 ...candidate,
-                audioFileName: handle.name,
-                audioHandleKey,
+                audioFileName: audioLibraryFileName,
+                audioLibraryFileName,
+                audioHandleKey: undefined,
                 updatedAt: now(),
               }
             : candidate,
         ),
       }));
-      setStatus("Doprovod propojen. Audio soubor zustava v pocitaci.");
+      setStatus(`Doprovod zkopirovan do slozky library jako „${audioLibraryFileName}“.`);
     } catch (error) {
       if ((error as Error).name === "AbortError") return;
       setStatus((error as Error).message);
     }
   }
 
-  function updateSong(songId: string, fields: { title: string; author: string }) {
+  function updateSong(songId: string, fields: { title: string; author: string; tags: string[] }) {
     setData((current) => ({
       ...current,
       songs: current.songs.map((candidate) =>
@@ -180,6 +326,7 @@ export default function App() {
               ...candidate,
               title: fields.title.trim() || candidate.title,
               author: fields.author.trim(),
+              tags: fields.tags,
               updatedAt: now(),
             }
           : candidate,
@@ -187,19 +334,33 @@ export default function App() {
     }));
   }
 
-  async function openSong(songId: string) {
-    if (!isFileSystemAccessSupported()) {
-      setStatus("Pro otevirani PDF bez kopirovani pouzij Microsoft Edge nebo Google Chrome.");
-      return;
-    }
+  function markSongsOpened(songIds: string[]) {
+    const timestamp = now();
+    const opened = new Set(songIds);
+    setData((current) => ({
+      ...current,
+      songs: current.songs.map((candidate) =>
+        opened.has(candidate.id) ? { ...candidate, lastOpenedAt: timestamp } : candidate,
+      ),
+    }));
+  }
 
+  async function openSong(songId: string) {
     const song = data.songs.find((candidate) => candidate.id === songId);
     if (!song) return;
 
     try {
-      await getPermittedFileHandle(song.handleKey);
+      if (!song.libraryFileName) {
+        if (!isFileSystemAccessSupported()) {
+          setStatus("Pro otevreni teto stare skladby pouzij Microsoft Edge nebo Google Chrome.");
+          return;
+        }
+        await getPermittedFileHandle(song.handleKey!);
+        void migrateSongToLibrary(song);
+      }
+
       let audioWarning = "";
-      if (song.audioHandleKey) {
+      if (!song.audioLibraryFileName && song.audioHandleKey) {
         try {
           await getPermittedFileHandle(song.audioHandleKey, "audio doprovod");
         } catch (error) {
@@ -208,6 +369,8 @@ export default function App() {
       }
 
       setStatus(audioWarning);
+      markSongsOpened([songId]);
+      if (!thumbnails[songId]) void refreshThumbnail(songId, undefined, song);
       setPlayerSession({
         songIds: [songId],
         currentSongIndex: 0,
@@ -220,10 +383,24 @@ export default function App() {
 
   async function deleteSong(songId: string) {
     const song = data.songs.find((candidate) => candidate.id === songId);
-    if (song) {
-      await deleteFileHandle(song.handleKey);
-      if (song.audioHandleKey) await deleteFileHandle(song.audioHandleKey);
-    }
+    if (!song) return;
+
+    if (
+      !window.confirm(
+        `Smazat „${song.title}“ z knihovny? Smaze se i kopie ve slozce library, puvodni soubor v pocitaci zustane.`,
+      )
+    )
+      return;
+
+    if (song.handleKey) await deleteFileHandle(song.handleKey);
+    if (song.audioHandleKey) await deleteFileHandle(song.audioHandleKey);
+    if (song.libraryFileName) await deleteLibraryFile(song.libraryFileName);
+    if (song.audioLibraryFileName) await deleteLibraryFile(song.audioLibraryFileName);
+    await deleteThumbnail(songId).catch(() => {});
+    setThumbnails((current) => {
+      const { [songId]: _removed, ...rest } = current;
+      return rest;
+    });
 
     setData((current) => ({
       ...current,
@@ -231,6 +408,7 @@ export default function App() {
       playlistItems: current.playlistItems.filter((item) => item.songId !== songId),
       rotations: current.rotations.filter((rotation) => rotation.songId !== songId),
     }));
+    setStatus(`Skladba „${song.title}“ smazana.`);
   }
 
   function createPlaylist(name: string) {
@@ -259,6 +437,10 @@ export default function App() {
   }
 
   function deletePlaylist(playlistId: string) {
+    const playlist = data.playlists.find((candidate) => candidate.id === playlistId);
+    if (!playlist) return;
+    if (!window.confirm(`Smazat playlist „${playlist.name}“? Skladby v knihovne zustanou.`)) return;
+
     setData((current) => ({
       ...current,
       playlists: current.playlists.filter((playlist) => playlist.id !== playlistId),
@@ -369,11 +551,6 @@ export default function App() {
   }
 
   async function openPlaylist(playlistId: string) {
-    if (!isFileSystemAccessSupported()) {
-      setStatus("Pro otevirani PDF bez kopirovani pouzij Microsoft Edge nebo Google Chrome.");
-      return;
-    }
-
     const songIds = playlistSongIds.get(playlistId)?.filter((songId) =>
       data.songs.some((song) => song.id === songId),
     );
@@ -381,14 +558,23 @@ export default function App() {
 
     try {
       const songsById = new Map(data.songs.map((song) => [song.id, song]));
-      for (const songId of songIds) {
-        const song = songsById.get(songId);
-        if (song) await getPermittedFileHandle(song.handleKey);
+      const legacySongs = songIds
+        .map((songId) => songsById.get(songId))
+        .filter((song): song is Song => Boolean(song && !song.libraryFileName));
+
+      if (legacySongs.length && !isFileSystemAccessSupported()) {
+        setStatus("Pro otevreni starych skladeb v playlistu pouzij Microsoft Edge nebo Google Chrome.");
+        return;
       }
+      for (const song of legacySongs) {
+        await getPermittedFileHandle(song.handleKey!);
+        void migrateSongToLibrary(song);
+      }
+
       let audioWarning = "";
       for (const songId of songIds) {
         const song = songsById.get(songId);
-        if (!song?.audioHandleKey) continue;
+        if (!song || song.audioLibraryFileName || !song.audioHandleKey) continue;
         try {
           await getPermittedFileHandle(song.audioHandleKey, "audio doprovod");
         } catch (error) {
@@ -397,6 +583,11 @@ export default function App() {
       }
 
       setStatus(audioWarning);
+      markSongsOpened(songIds);
+      for (const songId of songIds) {
+        const song = songsById.get(songId);
+        if (song && !thumbnails[songId]) void refreshThumbnail(songId, undefined, song);
+      }
       setPlayerSession({ songIds, currentSongIndex: 0, pageNumber: 1, playlistId });
     } catch (error) {
       setStatus((error as Error).message);
@@ -405,6 +596,10 @@ export default function App() {
 
   function setViewMode(mode: PageViewMode) {
     setData((current) => ({ ...current, settings: { ...current.settings, pageViewMode: mode } }));
+  }
+
+  function setLibrarySort(librarySort: LibrarySort) {
+    setData((current) => ({ ...current, settings: { ...current.settings, librarySort } }));
   }
 
   function toggleNightMode() {
@@ -531,6 +726,9 @@ export default function App() {
         {view === "library" ? (
           <LibraryView
             songs={data.songs}
+            thumbnails={thumbnails}
+            sort={data.settings.librarySort ?? "title"}
+            onChangeSort={setLibrarySort}
             onAddPdf={addPdf}
             onOpenSong={openSong}
             onReconnectPdf={reconnectPdf}

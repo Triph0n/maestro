@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AppData, PageViewMode, PlayerSession } from "../data/types";
-import { getFileFromHandle } from "../data/storage";
+import { getSongAudioFile, getSongPdfFile } from "../data/storage";
 import { pdfjs, pdfjsWasmUrl } from "../pdf/pdfSetup";
 import { PdfCanvas } from "./PdfCanvas";
 
@@ -78,6 +78,18 @@ export function PlayerView({
     return secondPage <= pageCount ? [session.pageNumber, secondPage] : [session.pageNumber];
   }, [mode, pageCount, session.pageNumber]);
 
+  // Keep real, rendered canvases mounted: a page turn only changes visibility.
+  const preparedSpreads = useMemo(() => {
+    if (!pageCount) return [];
+    const starts = [session.pageNumber, session.pageNumber + step,
+      session.pageNumber + 2 * step, session.pageNumber - step];
+    return starts.filter((start) => start >= 1 && start <= pageCount);
+  }, [pageCount, session.pageNumber, step]);
+
+  const pdfSongId = currentSong?.id;
+  const pdfLibraryFileName = currentSong?.libraryFileName;
+  const pdfHandleKey = currentSong?.handleKey;
+
   const lastPageStart = useCallback(
     (count: number) => {
       if (mode === "single") return count;
@@ -96,7 +108,7 @@ export function PlayerView({
     async function loadPdf() {
       if (!currentSong) return;
       try {
-        const file = await getFileFromHandle(currentSong.handleKey);
+        const file = await getSongPdfFile(currentSong);
         if (cancelled) return;
         const bytes = await file.arrayBuffer();
         if (cancelled) return;
@@ -120,7 +132,8 @@ export function PlayerView({
       cancelled = true;
       loadedDoc?.destroy().catch(() => undefined);
     };
-  }, [currentSong]);
+    // Metadata such as lastPageNumber changes on every turn, not the PDF source.
+  }, [pdfSongId, pdfLibraryFileName, pdfHandleKey]);
 
   useEffect(() => {
     let cancelled = false;
@@ -130,10 +143,10 @@ export function PlayerView({
     setAudioPlaying(false);
 
     async function loadAudio() {
-      if (!currentSong?.audioHandleKey) return;
+      if (!currentSong?.audioLibraryFileName && !currentSong?.audioHandleKey) return;
 
       try {
-        const file = await getFileFromHandle(currentSong.audioHandleKey, "audio doprovod");
+        const file = await getSongAudioFile(currentSong);
         objectUrl = URL.createObjectURL(file);
         if (cancelled) {
           URL.revokeObjectURL(objectUrl);
@@ -151,7 +164,7 @@ export function PlayerView({
       cancelled = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [currentSong?.audioHandleKey]);
+  }, [currentSong?.audioLibraryFileName, currentSong?.audioHandleKey]);
 
   useEffect(() => {
     if (!pageCount) return;
@@ -159,28 +172,6 @@ export function PlayerView({
       onChangeSession({ ...session, pageNumber: lastPageStart(pageCount) });
     }
   }, [lastPageStart, onChangeSession, pageCount, session]);
-
-  useEffect(() => {
-    if (!pdfDocument || !pageCount) return;
-
-    const pagesToWarm = new Set<number>();
-    for (const page of visiblePages) pagesToWarm.add(page);
-
-    const nextPage = session.pageNumber + step;
-    const prevPage = session.pageNumber - step;
-    if (nextPage <= pageCount) {
-      pagesToWarm.add(nextPage);
-      if (mode === "double" && nextPage + 1 <= pageCount) pagesToWarm.add(nextPage + 1);
-    }
-    if (prevPage >= 1) {
-      pagesToWarm.add(prevPage);
-      if (mode === "double" && prevPage + 1 <= pageCount) pagesToWarm.add(prevPage + 1);
-    }
-
-    for (const pageNumber of pagesToWarm) {
-      pdfDocument.getPage(pageNumber).catch(() => undefined);
-    }
-  }, [mode, pageCount, pdfDocument, session.pageNumber, step, visiblePages]);
 
   const goNext = useCallback(() => {
     if (!pageCount) return;
@@ -394,7 +385,7 @@ export function PlayerView({
         onClick={(event) => event.stopPropagation()}
       >
         <audio
-          key={`${currentSong.id}-${currentSong.audioHandleKey}`}
+          key={`${currentSong.id}-${currentSong.audioLibraryFileName ?? currentSong.audioHandleKey}`}
           ref={audioRef}
           src={audioUrl || undefined}
           preload="metadata"
@@ -487,29 +478,31 @@ export function PlayerView({
       <div className={`pdf-stage ${mode}${nightMode ? " night" : ""}`}>
         {loadError ? <div className="player-message">{loadError}</div> : null}
         {!loadError && !pdfDocument ? <div className="player-message">Nacitam PDF...</div> : null}
-        {pdfDocument
-          ? visiblePages.map((pageNumber, index) => (
-              <PdfCanvas
-                key={`${currentSong.id}-${mode}-${index}`}
-                pdfDocument={pdfDocument}
-                pageNumber={pageNumber}
-                rotation={rotationByPage.get(pageNumber) ?? 0}
-              />
-            ))
-          : null}
-
-        {pdfDocument && halfPageEnabled && halfTurn && session.pageNumber + 1 <= pageCount ? (
-          <>
-            <div className="half-page-overlay">
-              <PdfCanvas
-                pdfDocument={pdfDocument}
-                pageNumber={session.pageNumber + 1}
-                rotation={rotationByPage.get(session.pageNumber + 1) ?? 0}
-              />
+        {pdfDocument ? preparedSpreads.map((start) => {
+          const active = start === session.pageNumber;
+          const half = halfPageEnabled && halfTurn && start === session.pageNumber + 1;
+          const pages = mode === "double" && start + 1 <= pageCount ? [start, start + 1] : [start];
+          return (
+            <div
+              key={`${currentSong.id}-${mode}-${start}`}
+              className={`pdf-spread ${mode}${half ? " half-page-overlay" : ""}`}
+              style={{ visibility: active || half ? "visible" : "hidden" }}
+              aria-hidden={!active && !half}
+              data-page-start={start}
+            >
+              {pages.map((pageNumber) => (
+                <PdfCanvas
+                  key={pageNumber}
+                  pdfDocument={pdfDocument}
+                  pageNumber={pageNumber}
+                  rotation={rotationByPage.get(pageNumber) ?? 0}
+                />
+              ))}
             </div>
-            <div className="half-page-divider" />
-          </>
-        ) : null}
+          );
+        }) : null}
+        {pdfDocument && halfPageEnabled && halfTurn && session.pageNumber + 1 <= pageCount
+          ? <div className="half-page-divider" /> : null}
       </div>
 
       <div className="page-indicator" aria-hidden="true">

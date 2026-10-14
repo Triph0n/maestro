@@ -176,6 +176,14 @@ select:focus-visible {
     border-color 150ms ease;
 }
 
+/* Na svetlem pergamenu potrebuji sekundarni tlacitka tmavy text misto bileho. */
+.parchment-panel .icon-button,
+.parchment-panel .icon-only {
+  border-color: rgba(42, 21, 8, 0.3);
+  background: rgba(42, 21, 8, 0.05);
+  color: var(--ink);
+}
+
 .main-nav button.active,
 .main-nav button:hover,
 .icon-button.primary,
@@ -271,11 +279,72 @@ select:focus-visible {
   flex: 1;
 }
 
+.library-sort {
+  max-width: 220px;
+}
+
+.tag-filter {
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid rgba(42, 21, 8, 0.24);
+  border-radius: 999px;
+  padding: 5px 13px;
+  background: rgba(253, 251, 247, 0.7);
+  color: var(--ink);
+  font-size: 13px;
+  font-style: normal;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+button.tag-chip {
+  min-height: 32px;
+}
+
+.tag-chip.small {
+  flex-shrink: 0;
+  padding: 3px 9px;
+  font-size: 11px;
+}
+
+.tag-chip.active {
+  box-shadow: inset 0 0 0 1.5px currentColor;
+  font-weight: 700;
+}
+
+.tag-chip.clear {
+  border-style: dashed;
+  background: transparent;
+  color: var(--muted-ink);
+}
+
+.tag-chip.color-0 { background: rgba(139, 0, 0, 0.1); border-color: rgba(139, 0, 0, 0.32); color: #681111; }
+.tag-chip.color-1 { background: rgba(61, 90, 46, 0.12); border-color: rgba(61, 90, 46, 0.36); color: #33491f; }
+.tag-chip.color-2 { background: rgba(46, 74, 90, 0.12); border-color: rgba(46, 74, 90, 0.36); color: #274757; }
+.tag-chip.color-3 { background: rgba(90, 46, 80, 0.12); border-color: rgba(90, 46, 80, 0.36); color: #4b2544; }
+.tag-chip.color-4 { background: rgba(140, 109, 49, 0.14); border-color: rgba(140, 109, 49, 0.44); color: #6d5322; }
+.tag-chip.color-5 { background: rgba(46, 90, 74, 0.12); border-color: rgba(46, 90, 74, 0.36); color: #24493a; }
+
 .song-edit-form {
   display: grid;
   min-width: 0;
-  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr) minmax(0, 1fr);
   gap: 8px;
+}
+
+.song-edit-form input {
+  min-height: 36px;
+  padding: 6px 10px;
 }
 
 .setlist-drop-end {
@@ -309,25 +378,93 @@ select:focus-visible {
   align-items: center;
   gap: 12px;
   border-bottom: 1px solid rgba(42, 21, 8, 0.18);
-  padding: 11px 0;
+  border-radius: 4px;
+  margin: 0 -8px;
+  padding: 5px 8px;
+}
+
+.song-row:hover,
+.setlist-row:hover {
+  background: rgba(197, 160, 89, 0.14);
 }
 
 .song-row {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+.song-row.editing {
   grid-template-columns: minmax(0, 1fr) auto;
 }
 
-.song-summary {
+.song-thumb {
   display: grid;
+  width: 32px;
+  height: 44px;
+  flex-shrink: 0;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid rgba(42, 21, 8, 0.25);
+  border-radius: 3px;
+  padding: 0;
+  background: var(--parchment-light);
+  color: var(--muted-ink);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.16);
+}
+
+.song-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top;
+}
+
+/* Kompaktni akcni tlacitka uvnitr radku (44px zustava v hlavicce a navigaci) */
+.song-row .icon-only,
+.setlist-row .icon-only {
+  width: 36px;
+  height: 36px;
+  min-height: 36px;
+}
+
+.song-row .row-actions,
+.setlist-row .row-actions {
+  gap: 6px;
+}
+
+.song-summary {
+  display: flex;
   min-width: 0;
-  gap: 3px;
+  align-items: baseline;
+  gap: 10px;
 }
 
 .song-summary strong {
   overflow: hidden;
   color: var(--mahogany-dark);
-  font-size: 17px;
+  font-size: 16px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.song-summary span {
+  flex-shrink: 3;
+}
+
+.song-summary small {
+  flex-shrink: 5;
+}
+
+.song-summary span::before {
+  content: "· ";
+  color: rgba(140, 109, 49, 0.6);
+}
+
+.song-summary small {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-self: center;
+  color: var(--gold-dark);
 }
 
 .song-summary span,
@@ -359,9 +496,62 @@ select:focus {
 }
 
 .row-actions {
+  position: relative;
   display: flex;
   flex-shrink: 0;
   gap: 8px;
+}
+
+.menu-backdrop {
+  position: fixed;
+  z-index: 19;
+  inset: 0;
+}
+
+.row-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  display: flex;
+  min-width: 250px;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid var(--gold-dark);
+  border-radius: 6px;
+  padding: 6px;
+  background: var(--parchment-light);
+  box-shadow: 0 16px 38px rgba(0, 0, 0, 0.38);
+}
+
+.row-menu.opens-up {
+  top: auto;
+  bottom: calc(100% + 6px);
+}
+
+.row-menu button {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 11px;
+  border: 0;
+  border-radius: 5px;
+  padding: 8px 12px;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+}
+
+.row-menu button:hover {
+  background: rgba(197, 160, 89, 0.24);
+}
+
+.row-menu button.danger {
+  color: #7d1111;
+}
+
+.row-menu button.danger:hover {
+  background: rgba(139, 0, 0, 0.12);
 }
 
 .icon-only {
@@ -457,19 +647,20 @@ select:focus {
 
 .setlist-row strong {
   display: grid;
-  width: 34px;
-  height: 34px;
+  width: 28px;
+  height: 28px;
   place-items: center;
   border-radius: 50%;
   background: #2a1508;
   color: var(--gold);
   font-family: Georgia, "Times New Roman", serif;
+  font-size: 14px;
 }
 
 .drag-handle {
   display: grid;
   width: 32px;
-  height: 34px;
+  height: 30px;
   place-items: center;
   border-radius: 5px;
   color: var(--muted-ink);
@@ -551,11 +742,19 @@ select:focus {
   pointer-events: none;
 }
 
-.pdf-stage.single {
+.pdf-spread {
+  position: absolute;
+  inset: 8px;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+
+.pdf-spread.single {
   grid-template-columns: minmax(0, 1fr);
 }
 
-.pdf-stage.double {
+.pdf-spread.double {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   column-gap: 0;
 }
@@ -568,11 +767,11 @@ select:focus {
   overflow: hidden;
 }
 
-.pdf-stage.double .pdf-canvas-wrap:first-of-type {
+.pdf-spread.double .pdf-canvas-wrap:first-child {
   justify-items: end;
 }
 
-.pdf-stage.double .pdf-canvas-wrap:last-of-type {
+.pdf-spread.double .pdf-canvas-wrap:nth-child(2) {
   justify-items: start;
 }
 

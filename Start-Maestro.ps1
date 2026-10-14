@@ -1,6 +1,6 @@
 $ErrorActionPreference = "Stop"
 
-$project = Split-Path -Parent $MyInvocation.MyCommand.Path
+$project = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
 $hostName = "127.0.0.1"
 $port = 43175
 $url = "http://${hostName}:${port}/"
@@ -24,7 +24,19 @@ function Test-MaestroServer {
 }
 
 if (-not (Test-MaestroServer)) {
-  $npm = (Get-Command npm.cmd -ErrorAction Stop).Source
+  $npm = if (Get-Command npm.cmd -ErrorAction SilentlyContinue) {
+    (Get-Command npm.cmd).Source
+  } elseif (Test-Path "C:\Program Files\nodejs\npm.cmd") {
+    "C:\Program Files\nodejs\npm.cmd"
+  } else {
+    "npm.cmd"
+  }
+
+  if (-not (Test-Path (Join-Path $project "dist\index.html"))) {
+    $buildCmd = "cd /d `"$project`" && `"$npm`" run build"
+    Start-Process -FilePath $env:ComSpec -ArgumentList "/c", $buildCmd -Wait -WindowStyle Hidden -WorkingDirectory $project
+  }
+
   $command = "cd /d `"$project`" && `"$npm`" run preview -- --host $hostName --port $port --strictPort"
   Start-Process -FilePath $env:ComSpec -ArgumentList "/c", $command -WindowStyle Hidden -WorkingDirectory $project
 

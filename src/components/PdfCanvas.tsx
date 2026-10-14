@@ -19,8 +19,12 @@ export function PdfCanvas({ pdfDocument, pageNumber, rotation }: PdfCanvasProps)
     let cancelled = false;
     let renderTask: any = null;
     let generation = 0;
+    let lastSize = "";
 
     const render = async () => {
+      const size = `${wrapper.clientWidth}:${wrapper.clientHeight}:${window.devicePixelRatio || 1}`;
+      if (size === lastSize) return;
+      lastSize = size;
       const myGeneration = ++generation;
       try {
         setError("");
@@ -55,7 +59,7 @@ export function PdfCanvas({ pdfDocument, pageNumber, rotation }: PdfCanvasProps)
         canvas.style.height = `${Math.floor(viewport.height / ratio)}px`;
         context.drawImage(nextCanvas, 0, 0);
       } catch (err) {
-        if (!cancelled && (err as Error).name !== "RenderingCancelledException") {
+        if (!cancelled && myGeneration === generation && (err as Error).name !== "RenderingCancelledException") {
           setError("Stranku se nepodarilo vykreslit.");
         }
       }

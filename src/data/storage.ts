@@ -1,9 +1,10 @@
-import type { AppData } from "./types";
+import type { AppData, Song } from "./types";
 
 const META_KEY = "maestro.appData.v1";
 const DB_NAME = "maestro-pdf-store";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const HANDLE_STORE = "fileHandles";
+const THUMB_STORE = "thumbnails";
 const LEGACY_PDF_STORE = "pdfs";
 const fileHandleCache = new Map<string, FileSystemFileHandle>();
 
@@ -28,7 +29,7 @@ export function normalizeAppData(parsed: Partial<AppData>): AppData {
   return {
     ...emptyAppData(),
     ...parsed,
-    songs: migratedSongs.filter((song) => song.handleKey),
+    songs: migratedSongs.filter((song) => song.handleKey || song.libraryFileName),
     settings: {
       ...emptyAppData().settings,
       ...parsed.settings,
@@ -62,6 +63,9 @@ function openDb(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(HANDLE_STORE)) {
         db.createObjectStore(HANDLE_STORE);
+      }
+      if (!db.objectStoreNames.contains(THUMB_STORE)) {
+        db.createObjectStore(THUMB_STORE);
       }
     };
 
@@ -126,6 +130,57 @@ export async function deleteFileHandle(handleKey: string) {
   fileHandleCache.delete(handleKey);
 }
 
+export async function putThumbnail(songId: string, dataUrl: string) {
+  const db = await openDb();
+
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction(THUMB_STORE, "readwrite");
+    transaction.objectStore(THUMB_STORE).put(dataUrl, songId);
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+  });
+
+  db.close();
+}
+
+export async function deleteThumbnail(songId: string) {
+  const db = await openDb();
+
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction(THUMB_STORE, "readwrite");
+    transaction.objectStore(THUMB_STORE).delete(songId);
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+  });
+
+  db.close();
+}
+
+export async function getAllThumbnails(): Promise<Record<string, string>> {
+  const db = await openDb();
+
+  const thumbnails = await new Promise<Record<string, string>>((resolve, reject) => {
+    const transaction = db.transaction(THUMB_STORE, "readonly");
+    const store = transaction.objectStore(THUMB_STORE);
+    const keysRequest = store.getAllKeys();
+    const valuesRequest = store.getAll();
+
+    transaction.oncomplete = () => {
+      const result: Record<string, string> = {};
+      const keys = keysRequest.result as string[];
+      const values = valuesRequest.result as string[];
+      keys.forEach((key, index) => {
+        result[key] = values[index];
+      });
+      resolve(result);
+    };
+    transaction.onerror = () => reject(transaction.error);
+  });
+
+  db.close();
+  return thumbnails;
+}
+
 export async function verifyFilePermission(handle: FileSystemFileHandle) {
   const options: FileSystemHandlePermissionDescriptor = { mode: "read" };
   if ((await handle.queryPermission(options)) === "granted") return true;
@@ -161,9 +216,64 @@ export async function getFileFromHandle(handleKey: string, fileLabel = "PDF"): P
   return handle.getFile();
 }
 
+// --- Zdrojova slozka library ---
+// Importovane soubory se kopiruji do slozky "library" vedle aplikace.
+// Presun nebo smazani puvodniho souboru pak knihovnu nerozbije.
+
+export function libraryFileUrl(fileName: string) {
+  return `/library/${encodeURIComponent(fileName)}`;
+}
+
+export async function importFileToLibrary(file: File): Promise<string> {
+  const response = await fetch(`/library-api/upload?name=${encodeURIComponent(file.name)}`, {
+    method: "POST",
+    body: file,
+  });
+  if (!response.ok) throw new Error("Soubor se nepodarilo zkopirovat do slozky library.");
+  const { fileName } = (await response.json()) as { fileName: string };
+  return fileName;
+}
+
+export async function listLibraryFiles(): Promise<string[]> {
+  const response = await fetch("/library-api/list");
+  if (!response.ok) return [];
+  return (await response.json()) as string[];
+}
+
+export async function deleteLibraryFile(fileName: string) {
+  await fetch(`/library-api/delete?name=${encodeURIComponent(fileName)}`, { method: "POST" }).catch(
+    () => undefined,
+  );
+}
+
+export async function getLibraryFile(fileName: string, fileLabel = "PDF"): Promise<File> {
+  const response = await fetch(libraryFileUrl(fileName));
+  if (!response.ok) {
+    throw new Error(`${fileLabel} „${fileName}“ chybi ve slozce library. Vyber soubor znovu.`);
+  }
+  const blob = await response.blob();
+  return new File([blob], fileName, { type: blob.type });
+}
+
+/** Nacte PDF skladby: prednostne kopii z library, jinak pres stary file handle. */
+export async function getSongPdfFile(song: Pick<Song, "libraryFileName" | "handleKey">): Promise<File> {
+  if (song.libraryFileName) return getLibraryFile(song.libraryFileName);
+  if (song.handleKey) return getFileFromHandle(song.handleKey);
+  throw new Error("PDF neni propojene. Vyber soubor znovu.");
+}
+
+/** Nacte audio doprovod: prednostne kopii z library, jinak pres stary file handle. */
+export async function getSongAudioFile(
+  song: Pick<Song, "audioLibraryFileName" | "audioHandleKey">,
+): Promise<File> {
+  if (song.audioLibraryFileName) return getLibraryFile(song.audioLibraryFileName, "audio doprovod");
+  if (song.audioHandleKey) return getFileFromHandle(song.audioHandleKey, "audio doprovod");
+  throw new Error("Doprovod neni propojeny.");
+}
+
 export async function pickPdfHandle(): Promise<FileSystemFileHandle | null> {
   if (!isFileSystemAccessSupported()) {
-    throw new Error("Vyber souboru bez kopirovani vyzaduje Microsoft Edge nebo Google Chrome.");
+    throw new Error("Vyber souboru vyzaduje Microsoft Edge nebo Google Chrome.");
   }
 
   const [handle] = await window.showOpenFilePicker({
